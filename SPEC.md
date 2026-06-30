@@ -102,10 +102,10 @@ All choices stay within the Google free tier and require **no build step**.
 | Cloud sync | **Cloud Firestore** | Per-user mirror; **last-write-wins by timestamp**. Durability guarantee on iOS, not just backup. |
 | File blobs | **Google Drive API** | Audio, transcripts, large files. |
 | AI | **Gemini** via **Firebase AI Logic** | Command interpretation + one-line summaries (free tier). |
-| Install modes | Plain **Safari page** and/or **PWA** (Add to Home Screen) | Web Speech may be **disabled in standalone PWA** on iOS — see Limitations. |
+| Install modes | **Safari tab first** (voice-reliable), then **PWA** (Add to Home Screen) | Web Speech may be **disabled in standalone PWA** on iOS → tab is the voice fallback. See Limitations. |
 | Hosting / deploy | **Firebase Hosting** | `firebase deploy`. |
 | Network containment | **Content-Security-Policy** | `connect-src` limited to Google/Firebase endpoints. |
-| Process governance | **agent-skills, vendored** | Skills live in the immutable platform repo (not a marketplace plugin); discovered via `CLAUDE.md`/`AGENTS.md` + project-scoped `.claude/settings.json`. See [Repository Topology](#repository-topology--layer-segregation). |
+| Process governance | **agent-skills, vendored** | Skills live in the immutable framework repo (not a marketplace plugin); discovered via `CLAUDE.md`/`AGENTS.md` + project-scoped `.claude/settings.json`. See [Repository Topology](#repository-topology--layer-segregation). |
 
 Pin versions where they matter at implementation time (Firebase JS SDK, Google Identity
 Services); record the chosen Gemini model id in this spec once confirmed (see Open Questions).
@@ -157,7 +157,7 @@ docs/framework-api.md      Coder/agent-facing API reference
 tests/                     Unit (node:test) + E2E (Playwright) for the framework itself
 ```
 
-The framework is **bundled with the agent-skills into one immutable "platform" repo** and consumed
+The coding surface is **bundled with the agent-skills into one immutable framework repo** and consumed
 by each app through a pinned submodule — see [Repository Topology & Layer Segregation](#repository-topology--layer-segregation).
 The `examples/voice-notes/` app above is illustrative; a *real* app lives in its own project repo
 per that topology.
@@ -243,7 +243,7 @@ Each E2E assertion drives a command via `app.emulate(...)` and verifies the resu
   - Commit secrets or API keys.
   - Perform local (offline) transcription.
   - Let app code bypass the dispatcher or perform its own I/O.
-  - Let the app repository modify the immutable platform submodule (framework **or** skills).
+  - Let the app repository modify the immutable framework submodule (coding surface **or** skills).
   - Write outside the project's writable allowlist (`app/**`, `tests/**`, `issues/*`, `TEST.md`) —
     see [Repository Topology](#repository-topology--layer-segregation).
 
@@ -290,9 +290,9 @@ convention the agent is trusted to honor. The layout exists to **prioritize proj
 while keeping it constrained by the framework**.
 
 ```
-IMMUTABLE PLATFORM REPO            own repo · vendored into each project as a pinned submodule
-   voice-platform/
-   ├── framework/                  the coding surface apps import (the SPEC §Project Structure tree)
+IMMUTABLE FRAMEWORK REPO           own repo · vendored into each project as a pinned submodule
+   voice-framework/                (bundles the coding surface AND the agent-skills)
+   ├── src/                        the coding surface apps import (the SPEC §Project Structure tree)
    │   ├── voiceframe.js
    │   ├── core/{dispatcher,voice,auth,db,sync,drive,ai,undo,log,emulate,ui}.js
    │   └── pwa/{manifest.webmanifest,service-worker.js}
@@ -305,55 +305,55 @@ IMMUTABLE PLATFORM REPO            own repo · vendored into each project as a p
 
 PROJECT REPO                       writable · the working tree   ← center of gravity
    voice-notes/                    (one repo per app)
-   ├── platform/                   → submodule → voice-platform   [READ-ONLY, pinned commit]
-   │                                 carries BOTH framework AND skills
+   ├── framework/                  → submodule → voice-framework   [READ-ONLY, pinned commit]
+   │                                 carries BOTH the coding surface AND skills
    ├── app/                        ← the ONLY code the agent writes
    │   ├── index.html              marks [data-voice] elements (the HTML contract)
-   │   └── app.js                  the single command handler (app.handle)
+   │   └── app.js                  the single command handler; imports framework/src/voiceframe.js
    ├── issues/                     user-voice corrections
    │   ├── 0001-search-misheard.fixture.json   {selector,type,transcript,expected}
    │   └── 0001-search-misheard.md             human-readable context + status
    ├── tests/                      generated from issues/, replayed via the emulation API
    │   └── 0001-search-misheard.spec.js
    ├── CLAUDE.md                   discovery entrypoint (auto-read by Claude Code): points to
-   │                               platform/skills/ + platform/AGENTS.md; states the allowlist
+   │                               framework/skills/ + framework/AGENTS.md; states the allowlist
    ├── AGENTS.md                   same pointer, cross-agent convention (any agent reads this)
-   ├── .claude/settings.json       registers platform/skills + platform/commands as PROJECT-scoped
+   ├── .claude/settings.json       registers framework/skills + framework/commands as PROJECT-scoped
    │                               (native /spec, /build … with NO global plugin install)
    ├── TASK.md                     [READ-ONLY] the brief given to the agent
    ├── TEST.md                     acceptance test authored once from TASK.md
    ├── firebase.json               Firebase Hosting + CSP (deploy)
-   └── .gitmodules                 pins the platform submodule commit
+   └── .gitmodules                 pins the framework submodule commit
 ```
 
 ### How an agent discovers the skills + rules from repo access (no plugin install)
 
 1. The agent is granted the **project repo** and runs `git clone --recurse-submodules`, pulling
-   `platform/` (framework **and** skills) immutably.
+   `framework/` (coding surface **and** skills) immutably.
 2. On open it auto-reads the project-root **`CLAUDE.md`** (Claude Code) / **`AGENTS.md`** (the
-   cross-tool standard). These point into `platform/skills/` and `platform/AGENTS.md`.
+   cross-tool standard). These point into `framework/skills/` and `framework/AGENTS.md`.
 3. Skills are plain `SKILL.md` files in the read-only submodule, usable as instructions by any
    agent; `.claude/settings.json` additionally wires them for native slash-command invocation.
 4. The rules of application and the immutability/writable contract live in the **immutable**
-   `platform/AGENTS.md`, so the agent learns them on access but **cannot weaken its own rules**.
+   `framework/AGENTS.md`, so the agent learns them on access but **cannot weaken its own rules**.
 
 No marketplace, no install step, no global plugin state — portable to any agent that honors
 `AGENTS.md`.
 
 ### Enforcement (structural, not just trust)
 
-- `platform/` is a pinned submodule; a pre-commit hook + CI job reject any diff under `platform/`
-  originating in the project repo → framework **and** skills are immutable to the app.
+- `framework/` is a pinned submodule; a pre-commit hook + CI job reject any diff under `framework/`
+  originating in the project repo → coding surface **and** skills are immutable to the app.
 - **Writable allowlist** = `app/**`, `tests/**`, `issues/*` (status/resolution), `TEST.md`.
-  Everything else (`platform/`, `TASK.md`, the discovery files) is read-only and CI-guarded.
-- **Dependency direction is one-way:** `project/app → platform/framework` (import) → ∅. Skills
+  Everything else (`framework/`, `TASK.md`, the discovery files) is read-only and CI-guarded.
+- **Dependency direction is one-way:** `project/app → framework/src` (import) → ∅. Skills
   govern from the read-only submodule; issues feed *into* the project.
 
 ### The correction loop, mapped onto the tree
 
 1. The user voice-corrects a logged command → the framework serializes a fixture.
 2. The fixture lands in `issues/NNNN-*.fixture.json` (+ `.md` context).
-3. `/build` + `/review` (from `platform/skills`) read the issue → generate `tests/NNNN-*.spec.js`
+3. `/build` + `/review` (from `framework/skills`) read the issue → generate `tests/NNNN-*.spec.js`
    that replays it via `app.emulate(...)` against the deployed Firebase URL → the test fails.
 4. The agent edits `app/**` only → the test passes → the commit references the issue → status
    becomes resolved. Each correction thus becomes a permanent regression test.
@@ -367,8 +367,8 @@ lock-in as a concern) but sharpens a set of iOS-specific limits. These are accep
 - **iOS Safari only.** Android, desktop, and other browsers are unsupported by design.
 - **Web Speech is flaky on iOS.** `webkitSpeechRecognition` works but: no usable `continuous` mode
   (needs a manual stop-timer), it conflicts with media playback and with simultaneous mic capture,
-  and it is **often disabled in a standalone (installed) PWA** — voice may require running as a
-  Safari *tab*, not an installed app. This tensions with the PWA goal (see Open Question 4).
+  and it is **often disabled in a standalone (installed) PWA**. **Decision: Safari-tab-first** —
+  the voice-reliable mode is a Safari tab; PWA is a secondary convenience with the tab as fallback.
 - **Voice Notes mic contention.** Capturing the audio blob (MediaRecorder) *and* transcribing
   (Web Speech) at the same time is unreliable on iOS — a known risk for the acceptance app.
 - **iOS storage eviction (ITP, ~7 days).** IndexedDB may be wiped after a period of non-use →
@@ -395,7 +395,7 @@ lock-in as a concern) but sharpens a set of iOS-specific limits. These are accep
    record here once chosen.
 3. **Drive folder layout.** Where app data and per-app file collections live in the user's Drive
    (single app folder vs. per-app subfolders).
-4. **PWA vs. Web Speech on iOS.** Web Speech is often disabled in a standalone (installed) PWA on
-   iOS — decide between "Safari-tab-first" (voice always works) or "PWA install, voice-in-browser
-   only." See Limitations.
+4. **PWA vs. Web Speech on iOS — RESOLVED.** **Safari-tab-first:** the primary, voice-reliable mode
+   is a Safari browser tab. PWA (Add to Home Screen) is offered *after*, as a secondary convenience;
+   if voice is unavailable in standalone PWA, the user falls back to the Safari tab for voice.
 ```
