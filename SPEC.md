@@ -95,6 +95,7 @@ All choices stay within the Google free tier and require **no build step**.
 | Install modes | **PWA** (`manifest.webmanifest` + service worker) **and** plain page | Either installed to home screen or loaded in a browser. |
 | Hosting / deploy | **Firebase Hosting** | `firebase deploy`. |
 | Network containment | **Content-Security-Policy** | `connect-src` limited to Google/Firebase endpoints. |
+| Process governance | **agent-skills, vendored** | Skills live in the immutable platform repo (not a marketplace plugin); discovered via `CLAUDE.md`/`AGENTS.md` + project-scoped `.claude/settings.json`. See [Repository Topology](#repository-topology--layer-segregation). |
 
 Pin versions where they matter at implementation time (Firebase JS SDK, Google Identity
 Services); record the chosen Gemini model id in this spec once confirmed (see Open Questions).
@@ -143,6 +144,11 @@ examples/voice-notes/      Acceptance-test app (see below)
 docs/framework-api.md      Coder/agent-facing API reference
 tests/                     Unit (node:test) + E2E (Playwright) for the framework itself
 ```
+
+The framework is **bundled with the agent-skills into one immutable "platform" repo** and consumed
+by each app through a pinned submodule — see [Repository Topology & Layer Segregation](#repository-topology--layer-segregation).
+The `examples/voice-notes/` app above is illustrative; a *real* app lives in its own project repo
+per that topology.
 
 ## Code Style
 
@@ -224,7 +230,9 @@ Each E2E assertion drives a command via `app.emulate(...)` and verifies the resu
   - Commit secrets or API keys.
   - Perform local (offline) transcription.
   - Let app code bypass the dispatcher or perform its own I/O.
-  - Let the app repository modify the immutable framework repository.
+  - Let the app repository modify the immutable platform submodule (framework **or** skills).
+  - Write outside the project's writable allowlist (`app/**`, `tests/**`, `issues/*`, `TEST.md`) —
+    see [Repository Topology](#repository-topology--layer-segregation).
 
 ### Containment model
 
@@ -259,6 +267,83 @@ The first app built on the framework, used to prove the harness works end-to-end
 - From its **networked sandbox**, the agent drives the deployed UI via the emulation API
   (`app.emulate({ selector: "#record", type: "say", transcript: "..." })`) and asserts that the
   two correctly-titled files exist in Drive.
+
+## Repository Topology & Layer Segregation
+
+The system separates four concerns into a **constraint hierarchy** where each layer constrains the
+one below, and the **project repo is the only writable surface**. Immutability is *structural* —
+the framework and the agent-skills live in one read-only submodule the agent cannot edit — not a
+convention the agent is trusted to honor. The layout exists to **prioritize project development
+while keeping it constrained by the framework**.
+
+```
+IMMUTABLE PLATFORM REPO            own repo · vendored into each project as a pinned submodule
+   voice-platform/
+   ├── framework/                  the coding surface apps import (the SPEC §Project Structure tree)
+   │   ├── voiceframe.js
+   │   ├── core/{dispatcher,voice,auth,db,sync,drive,ai,undo,log,emulate,ui}.js
+   │   └── pwa/{manifest.webmanifest,service-worker.js}
+   ├── skills/                     vendored agent-skills (immutable copy): spec · plan · build ·
+   │                               review · ship … (one SKILL.md each)
+   ├── commands/                   slash-command wrappers (/spec, /build, …)
+   ├── AGENTS.md                   RULES OF APPLICATION — when/how to use each skill + the
+   │                               immutability & writable-surface contract (read-only)
+   └── docs/framework-api.md
+
+PROJECT REPO                       writable · the working tree   ← center of gravity
+   voice-notes/                    (one repo per app)
+   ├── platform/                   → submodule → voice-platform   [READ-ONLY, pinned commit]
+   │                                 carries BOTH framework AND skills
+   ├── app/                        ← the ONLY code the agent writes
+   │   ├── index.html              marks [data-voice] elements (the HTML contract)
+   │   └── app.js                  the single command handler (app.handle)
+   ├── issues/                     user-voice corrections
+   │   ├── 0001-search-misheard.fixture.json   {selector,type,transcript,expected}
+   │   └── 0001-search-misheard.md             human-readable context + status
+   ├── tests/                      generated from issues/, replayed via the emulation API
+   │   └── 0001-search-misheard.spec.js
+   ├── CLAUDE.md                   discovery entrypoint (auto-read by Claude Code): points to
+   │                               platform/skills/ + platform/AGENTS.md; states the allowlist
+   ├── AGENTS.md                   same pointer, cross-agent convention (any agent reads this)
+   ├── .claude/settings.json       registers platform/skills + platform/commands as PROJECT-scoped
+   │                               (native /spec, /build … with NO global plugin install)
+   ├── TASK.md                     [READ-ONLY] the brief given to the agent
+   ├── TEST.md                     acceptance test authored once from TASK.md
+   ├── firebase.json               Firebase Hosting + CSP (deploy)
+   └── .gitmodules                 pins the platform submodule commit
+```
+
+### How an agent discovers the skills + rules from repo access (no plugin install)
+
+1. The agent is granted the **project repo** and runs `git clone --recurse-submodules`, pulling
+   `platform/` (framework **and** skills) immutably.
+2. On open it auto-reads the project-root **`CLAUDE.md`** (Claude Code) / **`AGENTS.md`** (the
+   cross-tool standard). These point into `platform/skills/` and `platform/AGENTS.md`.
+3. Skills are plain `SKILL.md` files in the read-only submodule, usable as instructions by any
+   agent; `.claude/settings.json` additionally wires them for native slash-command invocation.
+4. The rules of application and the immutability/writable contract live in the **immutable**
+   `platform/AGENTS.md`, so the agent learns them on access but **cannot weaken its own rules**.
+
+No marketplace, no install step, no global plugin state — portable to any agent that honors
+`AGENTS.md`.
+
+### Enforcement (structural, not just trust)
+
+- `platform/` is a pinned submodule; a pre-commit hook + CI job reject any diff under `platform/`
+  originating in the project repo → framework **and** skills are immutable to the app.
+- **Writable allowlist** = `app/**`, `tests/**`, `issues/*` (status/resolution), `TEST.md`.
+  Everything else (`platform/`, `TASK.md`, the discovery files) is read-only and CI-guarded.
+- **Dependency direction is one-way:** `project/app → platform/framework` (import) → ∅. Skills
+  govern from the read-only submodule; issues feed *into* the project.
+
+### The correction loop, mapped onto the tree
+
+1. The user voice-corrects a logged command → the framework serializes a fixture.
+2. The fixture lands in `issues/NNNN-*.fixture.json` (+ `.md` context).
+3. `/build` + `/review` (from `platform/skills`) read the issue → generate `tests/NNNN-*.spec.js`
+   that replays it via `app.emulate(...)` against the deployed Firebase URL → the test fails.
+4. The agent edits `app/**` only → the test passes → the commit references the issue → status
+   becomes resolved. Each correction thus becomes a permanent regression test.
 
 ## Open Questions
 
