@@ -34,7 +34,16 @@ The load-bearing parts of the framework are therefore:
 
 - **Primary:** the coding agent building an app under supervision, and the human supervising
   and correcting it by voice.
-- **Downstream:** end-users who control the resulting apps hands-free on mobile.
+- **Downstream:** the owner and a few friends who control the resulting apps hands-free on iPhone.
+
+### Target platform & users
+
+- **Platform: iOS Safari (iPhone) only.** Android, desktop, and other browsers are Non-goals.
+- **Users: the owner + a small allowlist of friends.** Each user has their **own private data** —
+  no sharing, no collaboration. Google login is mandatory and restricted to the allowlist.
+
+See [Target Platform & Limitations](#target-platform--limitations-non-goals) for the constraints
+this scope imposes.
 
 ### Why now
 
@@ -74,8 +83,8 @@ the fixture passes. The **Voice Notes** app (below) is the first such proof.
 
 - A **true runtime sandbox** of app code (see Containment, below — v1 uses convention + CSP +
   verification, not a runtime jail).
-- The **local↔cloud sync conflict-resolution algorithm** beyond a v1 default (see Open Questions).
-- Multi-user / real-time collaboration.
+- **Android, desktop, and non-Safari browsers** — iPhone/iOS Safari only.
+- **Shared/collaborative data and real-time multi-user** — each user's data is private.
 - Non-Google authentication.
 
 ## Tech Stack
@@ -85,14 +94,15 @@ All choices stay within the Google free tier and require **no build step**.
 | Concern | Choice | Notes |
 |---|---|---|
 | Language / packaging | Vanilla **ES modules**, no bundler | Output is plain HTML + JS; library loaded via `<script type="module">`. |
-| Live transcription | **Web Speech API** (`SpeechRecognition`) | Browser/cloud-backed; used for command transcripts. |
-| Raw audio capture | **`MediaRecorder`** | Runs in parallel when an app needs the audio blob (e.g. Voice Notes). |
-| Auth | **Google Identity Services** / **Firebase Auth** | Google login is mandatory. |
-| Local DB | **IndexedDB** | Source of truth on-device. |
-| Cloud sync | **Cloud Firestore** | Mirrors the local DB for backup + cross-device. |
+| Target | **iOS Safari (iPhone) only** | Android/desktop are Non-goals — see [Limitations](#target-platform--limitations-non-goals). |
+| Transcription | **Web Speech API** (`webkitSpeechRecognition`, `lang='ru-RU'`) | Primary path on iOS Safari. Flaky on iOS — see Limitations. |
+| Raw audio capture | **`MediaRecorder`** | Only when an app needs the audio blob (e.g. Voice Notes). iOS records **mp4/AAC**; `getUserMedia` needs HTTPS + a user gesture. |
+| Auth | **Google Identity Services** / **Firebase Auth** + **account allowlist** | Google login mandatory, restricted to owner + friends. |
+| Local DB | **IndexedDB** | On-device working set; may be evicted on iOS (ITP) — see Limitations. |
+| Cloud sync | **Cloud Firestore** | Per-user mirror; **last-write-wins by timestamp**. Durability guarantee on iOS, not just backup. |
 | File blobs | **Google Drive API** | Audio, transcripts, large files. |
 | AI | **Gemini** via **Firebase AI Logic** | Command interpretation + one-line summaries (free tier). |
-| Install modes | **PWA** (`manifest.webmanifest` + service worker) **and** plain page | Either installed to home screen or loaded in a browser. |
+| Install modes | Plain **Safari page** and/or **PWA** (Add to Home Screen) | Web Speech may be **disabled in standalone PWA** on iOS — see Limitations. |
 | Hosting / deploy | **Firebase Hosting** | `firebase deploy`. |
 | Network containment | **Content-Security-Policy** | `connect-src` limited to Google/Firebase endpoints. |
 | Process governance | **agent-skills, vendored** | Skills live in the immutable platform repo (not a marketplace plugin); discovered via `CLAUDE.md`/`AGENTS.md` + project-scoped `.claude/settings.json`. See [Repository Topology](#repository-topology--layer-segregation). |
@@ -120,10 +130,12 @@ dependency). This spec describes that repository's intended layout:
 
 ```
 src/voiceframe.js          Public API entry (ES module): VoiceApp.init / handle / emulate
-src/core/dispatcher.js     Tap-vs-hold detection; the single input handler. Uses event
-                           delegation + a MutationObserver so dynamically-created
+src/core/dispatcher.js     Tap-vs-hold detection; the single input handler. Uses touchstart/
+                           touchend (suppressing native long-press/context-menu/scroll/zoom) +
+                           event delegation + a MutationObserver so dynamically-created
                            [data-voice] elements auto-wire with no app-side code.
-src/core/voice.js          Web Speech API transcription + MediaRecorder audio capture
+src/core/voice.js          webkitSpeechRecognition (lang='ru-RU') transcription + MediaRecorder
+                           audio capture when an app needs the blob
 src/core/auth.js           Google login (mandatory)
 src/core/db.js             IndexedDB local store
 src/core/sync.js           Firestore <-> local reconciliation
@@ -203,9 +215,10 @@ inverse application, IndexedDB op shapes, Gemini prompt building, and **fixture 
 into a structured, replayable fixture. Fixtures are the regression suite: each corrected command
 becomes a permanent test.
 
-**E2E (Playwright)** — drives the app *through the emulation API* (Web Speech mocked):
+**E2E (Playwright, WebKit engine to match iOS Safari)** — drives the app *through the emulation
+API* (Web Speech mocked), plus a real-device iPhone smoke check:
 
-- In CI, against a **local** URL.
+- In CI, against a **local** URL (Playwright WebKit).
 - From the agent's networked sandbox, against the **deployed Firebase Hosting URL**.
 
 Each E2E assertion drives a command via `app.emulate(...)` and verifies the resulting
@@ -345,14 +358,44 @@ No marketplace, no install step, no global plugin state — portable to any agen
 4. The agent edits `app/**` only → the test passes → the commit references the issue → status
    becomes resolved. Each correction thus becomes a permanent regression test.
 
+## Target Platform & Limitations (Non-goals)
+
+Scope is deliberately narrow — **iPhone / iOS Safari, owner + a few friends, private per-user
+data**. That dissolves the usual scaling worries (free-tier ceilings, cross-browser, abuse, vendor
+lock-in as a concern) but sharpens a set of iOS-specific limits. These are accepted, not bugs:
+
+- **iOS Safari only.** Android, desktop, and other browsers are unsupported by design.
+- **Web Speech is flaky on iOS.** `webkitSpeechRecognition` works but: no usable `continuous` mode
+  (needs a manual stop-timer), it conflicts with media playback and with simultaneous mic capture,
+  and it is **often disabled in a standalone (installed) PWA** — voice may require running as a
+  Safari *tab*, not an installed app. This tensions with the PWA goal (see Open Question 4).
+- **Voice Notes mic contention.** Capturing the audio blob (MediaRecorder) *and* transcribing
+  (Web Speech) at the same time is unreliable on iOS — a known risk for the acceptance app.
+- **iOS storage eviction (ITP, ~7 days).** IndexedDB may be wiped after a period of non-use →
+  **Firestore sync is the durability guarantee**, not merely a backup.
+- **PWA limits on iOS.** No install prompt, limited background execution, web-push only on
+  iOS 16.4+ in standalone mode.
+- **Architectural ceiling.** The single-handler, no-build, vanilla-JS model fits light
+  voice-driven CRUD. It is **not** "any complexity": no component model, router, or state layer;
+  no npm/TypeScript ecosystem.
+- **Non-deterministic interpretation.** Gemini parses commands probabilistically; reliability
+  rests on the command-log → fixture → replay correction loop, which narrows but never eliminates
+  flakiness.
+- **Test coverage is shaped by `emulate()`.** Only what can be expressed as *element + transcript*
+  is exercised; visual, timing, gesture, and offline behaviour are not covered by the harness.
+- **Soft containment.** Convention + CSP + verification, not a runtime jail — acceptable because
+  the only users are trusted.
+
 ## Open Questions
 
-1. **Sync conflict-resolution policy.** The brief leaves local↔cloud reconciliation
-   under-specified (last-write-wins vs. merge vs. prompt-the-user). **Proposed v1 default:**
-   last-write-wins by record timestamp, with the command log as the audit trail. Flagged for a
-   follow-up decision before the sync module is built.
+1. **Sync conflict-resolution policy — RESOLVED.** Data is private per user, so reconciliation is
+   **last-write-wins by record timestamp**, with the command log as the audit trail. No
+   multi-writer/merge handling needed.
 2. **Gemini model id / quota.** Confirm the exact free-tier model identifier and rate limits;
    record here once chosen.
 3. **Drive folder layout.** Where app data and per-app file collections live in the user's Drive
    (single app folder vs. per-app subfolders).
+4. **PWA vs. Web Speech on iOS.** Web Speech is often disabled in a standalone (installed) PWA on
+   iOS — decide between "Safari-tab-first" (voice always works) or "PWA install, voice-in-browser
+   only." See Limitations.
 ```
