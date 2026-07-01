@@ -10,6 +10,7 @@ import { createDrive } from './core/drive.js';
 import { createUndoStack, recordPutMutation, recordDeleteMutation } from './core/undo.js';
 import { createCommandLog } from './core/log.js';
 import { createAI } from './core/ai.js';
+import { createEmulator } from './core/emulate.js';
 
 export class VoiceApp {
   constructor() {
@@ -22,6 +23,7 @@ export class VoiceApp {
     this.undoStack = null;
     this.commandLog = null;
     this.ai = null;
+    this.emulator = null;
     this.handler = null;
     this.initialized = false;
     this.config = null;
@@ -79,6 +81,19 @@ export class VoiceApp {
 
     // Initialize dispatcher with integrated voice handling
     this.dispatcher = await createDispatcher(this.handleCommand.bind(this));
+
+    // Agent-emulation API: drives the page through the same handler as real
+    // user input (see SPEC.md "The agent-emulation API").
+    this.emulator = createEmulator({
+      dispatchCommand: this._dispatchEmulatedCommand.bind(this),
+      requireAuth: () => { if (this.auth) this.auth.requireAuth(); },
+    });
+
+    // Reachable on window.__voiceframe in debug mode (local driving, and an
+    // agent's networked sandbox reaching in against the deployed URL).
+    if (config.debug && typeof window !== 'undefined') {
+      this.emulator.exposeOnWindow(window);
+    }
 
     this.initialized = true;
     return this;
@@ -230,43 +245,20 @@ export class VoiceApp {
     return this.ai.summarize(text);
   }
 
-  async emulate(command) {
-    // Programmatic command dispatch for testing and agents.
-    // Drives the same handler as real user input — see SPEC.md: the emulation
-    // API must reach the identical code path so E2E assertions are meaningful.
-    // {selector, type, transcript, expected?}
-    if (!command.selector) {
-      throw new Error('emulate() requires selector');
-    }
-
-    const element = document.querySelector(command.selector);
-    if (!element) {
-      throw new Error(`Element not found: ${command.selector}`);
-    }
-
-    if (this.auth) {
-      this.auth.requireAuth();
-    }
-
-    const ctx = {
-      element,
-      selector: command.selector,
-      type: command.type || 'say',
-      transcript: command.transcript || null,
-      audioBlob: command.audioBlob || null,
-    };
-
+  // Dispatches an emulated command through the same context wiring (log,
+  // tracked db, drive, interpret) and the same app handler as live input —
+  // no separate code path, so E2E assertions against emulate() are meaningful.
+  async _dispatchEmulatedCommand(ctx) {
     await this._wireCommandContext(ctx);
-
     if (this.handler) {
       await this.handler(ctx);
     }
+  }
 
-    // Return observable state (to be enhanced when storage modules integrate)
-    return {
-      success: true,
-      context: ctx,
-    };
+  // Programmatic command dispatch for testing and agents, locally or over
+  // the network against a deployed URL. {selector, type, transcript, expected?}
+  async emulate(command) {
+    return this.emulator.run(command);
   }
 }
 
