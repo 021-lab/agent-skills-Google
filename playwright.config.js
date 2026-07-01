@@ -18,8 +18,11 @@ export default defineConfig({
     },
   },
   webServer: {
-    command: 'npx serve . -l 4173',
-    url: 'http://127.0.0.1:4173',
+    // Health-checked by TCP port, not a URL: the repo root has no index.html
+    // (apps live under examples/ or tests/fixtures/), so a path-based check
+    // would 404 forever even though the server is up.
+    command: 'node scripts/dev-server.mjs 4173',
+    port: 4173,
     reuseExistingServer: !process.env.CI,
     timeout: 30000,
   },

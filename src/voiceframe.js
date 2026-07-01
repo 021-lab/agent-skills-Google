@@ -105,6 +105,20 @@ export class VoiceApp {
       this.voiceIO.onStateChange = (state) => this.ui.setMicState(state);
     }
 
+    // Offline capability (opt out with config.pwa === false). See
+    // SPEC.md "PWA limits on iOS": no install prompt, Web Speech often
+    // disabled in standalone mode — registration itself is still safe.
+    if (config.pwa !== false && typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      const swPath = config.serviceWorkerPath || '/src/pwa/service-worker.js';
+      // scope: '/' lets the worker (served from /src/pwa/) control the whole
+      // origin instead of being restricted to its own directory. The server
+      // must send Service-Worker-Allowed: / for this file (see firebase.json
+      // and scripts/dev-server.mjs) or the browser rejects the wider scope.
+      navigator.serviceWorker.register(swPath, { scope: '/' }).catch((err) => {
+        console.error('Service worker registration failed:', err);
+      });
+    }
+
     this.initialized = true;
     return this;
   }
