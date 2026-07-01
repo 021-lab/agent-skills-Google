@@ -64,7 +64,7 @@ function mockFirebase(initialUser = null) {
 
 test('Checkpoint 1: unauthenticated command is rejected before reaching app handler', async () => {
   const firebase = mockFirebase();
-  const app = await VoiceApp.init({ firebase, allowlist: ['owner@example.com'] });
+  const app = await VoiceApp.init({ ui: false, firebase, allowlist: ['owner@example.com'] });
 
   let handlerCalled = false;
   app.handle(async () => { handlerCalled = true; });
@@ -78,7 +78,7 @@ test('Checkpoint 1: unauthenticated command is rejected before reaching app hand
 
 test('Checkpoint 1: authenticated tap command reaches the single app handler', async () => {
   const firebase = mockFirebase();
-  const app = await VoiceApp.init({ firebase, allowlist: ['owner@example.com'] });
+  const app = await VoiceApp.init({ ui: false, firebase, allowlist: ['owner@example.com'] });
 
   await app.auth.signIn({ user: { email: 'owner@example.com', uid: '123' } });
 
@@ -94,7 +94,7 @@ test('Checkpoint 1: authenticated tap command reaches the single app handler', a
 
 test('Checkpoint 1: non-allowlisted user cannot reach app handler even after signIn attempt', async () => {
   const firebase = mockFirebase();
-  const app = await VoiceApp.init({ firebase, allowlist: ['owner@example.com'] });
+  const app = await VoiceApp.init({ ui: false, firebase, allowlist: ['owner@example.com'] });
 
   await app.auth.signIn({ user: { email: 'stranger@example.com', uid: '999' } });
 
@@ -109,7 +109,7 @@ test('Checkpoint 1: non-allowlisted user cannot reach app handler even after sig
 test('Checkpoint 1: dispatcher wiring does not throw during VoiceApp initialization', async () => {
   const firebase = mockFirebase();
   await assert.doesNotReject(async () => {
-    const app = await VoiceApp.init({ firebase, allowlist: ['owner@example.com'] });
+    const app = await VoiceApp.init({ ui: false, firebase, allowlist: ['owner@example.com'] });
     assert.ok(app.dispatcher, 'dispatcher should be initialized');
     assert.ok(app.voiceIO, 'voiceIO should be initialized');
     assert.ok(app.auth, 'auth should be initialized when firebase+allowlist supplied');
@@ -117,7 +117,7 @@ test('Checkpoint 1: dispatcher wiring does not throw during VoiceApp initializat
 });
 
 test('Checkpoint 1: VoiceApp works without auth config (auth optional per app)', async () => {
-  const app = await VoiceApp.init({});
+  const app = await VoiceApp.init({ ui: false });
   assert.strictEqual(app.auth, null, 'auth should be skipped when not configured');
 
   let handlerCalled = false;

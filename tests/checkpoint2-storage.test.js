@@ -99,6 +99,7 @@ test('Checkpoint 2: local mutation via ctx.db syncs to Firestore', async () => {
   const firebase = createMockFirebase({ email: 'owner@example.com', uid: 'u1' });
   const firestore = createMockFirestore();
   const app = await VoiceApp.init({
+    ui: false,
     idb: createMockIDB(),
     firebase,
     allowlist: ['owner@example.com'],
@@ -127,6 +128,7 @@ test('Checkpoint 2: Firestore changes reconcile into local storage via sync', as
   await firestore.collection('x').doc('item-2').set({ id: 'item-2', text: 'seeded remotely', _ts: 100 });
 
   const app = await VoiceApp.init({
+    ui: false,
     idb: createMockIDB(),
     firebase,
     allowlist: ['owner@example.com'],
@@ -144,6 +146,7 @@ test('Checkpoint 2: Firestore changes reconcile into local storage via sync', as
 test('Checkpoint 2: undo reverses a ctx.db mutation made by the app handler', async () => {
   const firebase = createMockFirebase({ email: 'owner@example.com', uid: 'u1' });
   const app = await VoiceApp.init({
+    ui: false,
     idb: createMockIDB(),
     firebase,
     allowlist: ['owner@example.com'],
@@ -166,6 +169,7 @@ test('Checkpoint 2: undo reverses a ctx.db mutation made by the app handler', as
 test('Checkpoint 2: N undo operations reverse N commands in LIFO order', async () => {
   const firebase = createMockFirebase({ email: 'owner@example.com', uid: 'u1' });
   const app = await VoiceApp.init({
+    ui: false,
     idb: createMockIDB(),
     firebase,
     allowlist: ['owner@example.com'],
@@ -192,6 +196,7 @@ test('Checkpoint 2: N undo operations reverse N commands in LIFO order', async (
 test('Checkpoint 2: every command is logged, and a voice correction round-trips as a fixture', async () => {
   const firebase = createMockFirebase({ email: 'owner@example.com', uid: 'u1' });
   const app = await VoiceApp.init({
+    ui: false,
     idb: createMockIDB(),
     firebase,
     allowlist: ['owner@example.com'],

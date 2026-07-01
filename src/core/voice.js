@@ -24,14 +24,23 @@ export class VoiceIO {
     this.audioBlob = null;
     this.listenTimeout = null;
 
+    // Notified on every state transition — used by ui.js to drive the mic
+    // indicator without voice.js needing to know the UI exists.
+    this.onStateChange = null;
+
     this.setupRecognitionHandlers();
+  }
+
+  _setState(state) {
+    this.state = state;
+    if (this.onStateChange) this.onStateChange(state);
   }
 
   setupRecognitionHandlers() {
     if (!this.recognition) return;
 
     this.recognition.onstart = () => {
-      this.state = 'listening';
+      this._setState('listening');
       this.clearListenTimeout();
       // 10s timeout to stop listening if no speech detected
       this.listenTimeout = setTimeout(() => this.stop(), STOP_LISTEN_TIMEOUT_MS);
@@ -51,12 +60,12 @@ export class VoiceIO {
 
     this.recognition.onerror = (event) => {
       console.error('Speech recognition error:', event.error);
-      this.state = 'idle';
+      this._setState('idle');
       this.clearListenTimeout();
     };
 
     this.recognition.onend = () => {
-      this.state = 'idle';
+      this._setState('idle');
       this.clearListenTimeout();
     };
   }
@@ -98,11 +107,11 @@ export class VoiceIO {
         this.audioBlob = new Blob(this.audioChunks, { type: 'audio/mp4' });
       };
 
-      this.state = 'recording';
+      this._setState('recording');
       this.mediaRecorder.start();
     } catch (err) {
       console.error('Failed to start recording:', err);
-      this.state = 'idle';
+      this._setState('idle');
       throw err;
     }
   }
@@ -110,7 +119,7 @@ export class VoiceIO {
   stopRecording() {
     if (this.mediaRecorder && this.state === 'recording') {
       this.mediaRecorder.stop();
-      this.state = 'idle';
+      this._setState('idle');
 
       // Stop all media tracks
       if (this.mediaStream) {

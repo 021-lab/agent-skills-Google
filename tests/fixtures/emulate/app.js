@@ -9,6 +9,10 @@ const app = await VoiceApp.init({ debug: true });
 
 app.handle(async (ctx) => {
   if (ctx.type === 'say' && ctx.transcript) {
+    // Route the mutation through ctx.db so it auto-records on the undo
+    // stack, exercising the same path a real app would use.
+    await ctx.db.put('mutations', { id: `item-${state.items.length}`, text: ctx.transcript });
+
     state.items.push(ctx.transcript);
     const li = document.createElement('li');
     li.textContent = ctx.transcript;

@@ -11,6 +11,7 @@ import { createUndoStack, recordPutMutation, recordDeleteMutation } from './core
 import { createCommandLog } from './core/log.js';
 import { createAI } from './core/ai.js';
 import { createEmulator } from './core/emulate.js';
+import { createUI } from './core/ui.js';
 
 export class VoiceApp {
   constructor() {
@@ -24,6 +25,7 @@ export class VoiceApp {
     this.commandLog = null;
     this.ai = null;
     this.emulator = null;
+    this.ui = null;
     this.handler = null;
     this.initialized = false;
     this.config = null;
@@ -93,6 +95,14 @@ export class VoiceApp {
     // agent's networked sandbox reaching in against the deployed URL).
     if (config.debug && typeof window !== 'undefined') {
       this.emulator.exposeOnWindow(window);
+    }
+
+    // Injected chrome: Undo button, Log tab, mic/recording indicator.
+    // Opt out with config.ui === false (e.g. a custom app-drawn UI).
+    if (config.ui !== false && typeof document !== 'undefined') {
+      this.ui = createUI({ undoStack: this.undoStack, commandLog: this.commandLog, voiceIO: this.voiceIO });
+      this.ui.mount();
+      this.voiceIO.onStateChange = (state) => this.ui.setMicState(state);
     }
 
     this.initialized = true;
@@ -229,6 +239,16 @@ export class VoiceApp {
     if (this.handler) {
       await this.handler(ctx);
     }
+
+    this._refreshUI();
+  }
+
+  // Reflects mutations made during the just-dispatched command (undo depth,
+  // and the log panel if it's open) in the injected chrome, if mounted.
+  _refreshUI() {
+    if (!this.ui) return;
+    this.ui.updateUndoState();
+    if (this.ui.logPanelOpen) this.ui.renderLog();
   }
 
   async interpret(transcript, schema) {
@@ -253,6 +273,7 @@ export class VoiceApp {
     if (this.handler) {
       await this.handler(ctx);
     }
+    this._refreshUI();
   }
 
   // Programmatic command dispatch for testing and agents, locally or over

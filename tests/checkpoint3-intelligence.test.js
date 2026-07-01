@@ -52,7 +52,7 @@ test('Checkpoint 3: emulate() drives a "say" command whose handler calls ctx.int
   global.document = mockDocument({ '#record': recordButton });
 
   const geminiClient = createMockGeminiClient('{"action":"add","item":"milk"}');
-  const app = await VoiceApp.init({ geminiClient });
+  const app = await VoiceApp.init({ ui: false, geminiClient });
 
   let interpreted = null;
   app.handle(async (ctx) => {
@@ -75,7 +75,7 @@ test('Checkpoint 3: app.summarize() produces a one-line title from a handler dri
   global.document = mockDocument({ '#record': recordButton });
 
   const geminiClient = createMockGeminiClient('Buy milk and eggs');
-  const app = await VoiceApp.init({ geminiClient });
+  const app = await VoiceApp.init({ ui: false, geminiClient });
 
   let title = null;
   app.handle(async (ctx) => {
@@ -95,7 +95,7 @@ test('Checkpoint 3: a mis-handled command, once corrected into a fixture, replay
   const recordButton = createMockElement('record');
   global.document = mockDocument({ '#record': recordButton });
 
-  const app = await VoiceApp.init({});
+  const app = await VoiceApp.init({ ui: false });
 
   // Buggy handler: misinterprets "mark this done" and never marks anything done.
   let itemDone = false;
@@ -144,7 +144,7 @@ test('Checkpoint 3: emulated commands are logged identically to how live dispatc
   const recordButton = createMockElement('record');
   global.document = mockDocument({ '#record': recordButton });
 
-  const app = await VoiceApp.init({});
+  const app = await VoiceApp.init({ ui: false });
   app.handle(async () => {});
 
   await app.emulate({ selector: '#record', type: 'say', transcript: 'call mom' });
