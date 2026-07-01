@@ -3,11 +3,13 @@
 
 import { createDispatcher } from './core/dispatcher.js';
 import { createVoiceIO } from './core/voice.js';
+import { createAuth } from './core/auth.js';
 
 export class VoiceApp {
   constructor() {
     this.dispatcher = null;
     this.voiceIO = null;
+    this.auth = null;
     this.handler = null;
     this.initialized = false;
     this.config = null;
@@ -21,6 +23,15 @@ export class VoiceApp {
 
   async initialize(config = {}) {
     this.config = config;
+
+    // Auth must be established before any data-facing capability is wired up.
+    if (config.firebase && config.allowlist) {
+      this.auth = await createAuth({
+        googleClientId: config.googleClientId,
+        firebase: config.firebase,
+        allowlist: config.allowlist,
+      });
+    }
 
     // Initialize voice I/O
     this.voiceIO = await createVoiceIO();
@@ -40,6 +51,11 @@ export class VoiceApp {
   }
 
   async handleCommand(ctx) {
+    // Require Google authentication before any command reaches app code or I/O.
+    if (this.auth) {
+      this.auth.requireAuth();
+    }
+
     // If type is "say", capture voice input
     if (ctx.type === 'say') {
       try {
