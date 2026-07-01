@@ -86,6 +86,32 @@ export class Auth {
     }
   }
 
+  // Passthrough to a real-SDK adapter's popup sign-in (see google-sdk.js's
+  // createFirebaseAdapter). Not all firebase.auth implementations support
+  // this — mocks used in tests generally don't, and that's fine: this
+  // method is only called from a UI sign-in button, never from the
+  // command-dispatch path. Like signIn()/signOut(), it does not call
+  // handleSignedIn() itself; the onAuthStateChanged listener registered in
+  // init() is the single place that happens, once the real SDK's own auth
+  // state listener fires after the popup resolves.
+  async signInWithGooglePopup() {
+    if (typeof this.firebase?.auth?.signInWithGooglePopup !== 'function') {
+      throw new Error('signInWithGooglePopup() is not supported by the configured auth provider');
+    }
+    this.state = 'signing-in';
+    this.notify();
+    try {
+      return await this.firebase.auth.signInWithGooglePopup();
+    } catch (err) {
+      if (this.state !== 'rejected') {
+        this.state = 'signed-out';
+        this.currentUser = null;
+        this.notify();
+      }
+      throw err;
+    }
+  }
+
   async signOut() {
     if (this.firebase && this.firebase.auth) {
       // The onAuthStateChanged listener registered in init() handles the resulting

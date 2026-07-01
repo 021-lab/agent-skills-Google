@@ -100,7 +100,7 @@ export class VoiceApp {
     // Injected chrome: Undo button, Log tab, mic/recording indicator.
     // Opt out with config.ui === false (e.g. a custom app-drawn UI).
     if (config.ui !== false && typeof document !== 'undefined') {
-      this.ui = createUI({ undoStack: this.undoStack, commandLog: this.commandLog, voiceIO: this.voiceIO });
+      this.ui = createUI({ undoStack: this.undoStack, commandLog: this.commandLog, voiceIO: this.voiceIO, auth: this.auth });
       this.ui.mount();
       this.voiceIO.onStateChange = (state) => this.ui.setMicState(state);
     }

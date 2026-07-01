@@ -149,3 +149,77 @@ test('Auth: init throws without Firebase auth instance', async () => {
 
   await assert.rejects(() => auth.init(), /requires a Firebase Auth instance/);
 });
+
+test('Auth: signInWithGooglePopup throws when the provider does not support it', async () => {
+  const firebase = mockFirebase(); // mockFirebase's auth has no signInWithGooglePopup
+  const auth = new Auth({ firebase, allowlist: ['owner@example.com'] });
+  await auth.init();
+
+  await assert.rejects(() => auth.signInWithGooglePopup(), /not supported by the configured auth provider/);
+});
+
+test('Auth: signInWithGooglePopup delegates to the adapter and the resulting onAuthStateChanged applies the allowlist', async () => {
+  // Mimics google-sdk.js's real adapter: signInWithGooglePopup() resolves
+  // with the user, and separately triggers the same onAuthStateChanged
+  // listeners a real Firebase SDK would fire once the popup completes.
+  const listeners = [];
+  const firebase = {
+    auth: {
+      onAuthStateChanged(cb) { listeners.push(cb); cb(null); },
+      async signInWithCredential() { throw new Error('unused'); },
+      async signOut() { listeners.forEach((l) => l(null)); },
+      async signInWithGooglePopup() {
+        const user = { email: 'owner@example.com', uid: 'popup-uid' };
+        listeners.forEach((l) => l(user));
+        return user;
+      },
+    },
+  };
+  const auth = new Auth({ firebase, allowlist: ['owner@example.com'] });
+  await auth.init();
+
+  const user = await auth.signInWithGooglePopup();
+
+  assert.strictEqual(user.uid, 'popup-uid');
+  assert.strictEqual(auth.isSignedIn(), true);
+  assert.strictEqual(auth.getState(), 'signed-in');
+});
+
+test('Auth: signInWithGooglePopup surfaces a rejected (non-allowlisted) popup sign-in', async () => {
+  const listeners = [];
+  const firebase = {
+    auth: {
+      onAuthStateChanged(cb) { listeners.push(cb); cb(null); },
+      async signInWithCredential() { throw new Error('unused'); },
+      async signOut() { listeners.forEach((l) => l(null)); },
+      async signInWithGooglePopup() {
+        const user = { email: 'stranger@example.com', uid: 'popup-uid' };
+        listeners.forEach((l) => l(user));
+        return user;
+      },
+    },
+  };
+  const auth = new Auth({ firebase, allowlist: ['owner@example.com'] });
+  await auth.init();
+
+  await auth.signInWithGooglePopup();
+
+  assert.strictEqual(auth.isSignedIn(), false);
+  assert.strictEqual(auth.getState(), 'rejected');
+});
+
+test('Auth: signInWithGooglePopup propagates a thrown error (e.g. user closed the popup)', async () => {
+  const firebase = {
+    auth: {
+      onAuthStateChanged(cb) { cb(null); },
+      async signInWithCredential() { throw new Error('unused'); },
+      async signOut() {},
+      async signInWithGooglePopup() { throw new Error('popup closed by user'); },
+    },
+  };
+  const auth = new Auth({ firebase, allowlist: ['owner@example.com'] });
+  await auth.init();
+
+  await assert.rejects(() => auth.signInWithGooglePopup(), /popup closed by user/);
+  assert.strictEqual(auth.getState(), 'signed-out');
+});
