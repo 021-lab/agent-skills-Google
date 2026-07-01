@@ -7,6 +7,8 @@ import { createAuth } from './core/auth.js';
 import { createLocalDB } from './core/db.js';
 import { createSync } from './core/sync.js';
 import { createDrive } from './core/drive.js';
+import { createUndoStack, recordPutMutation, recordDeleteMutation } from './core/undo.js';
+import { createCommandLog } from './core/log.js';
 
 export class VoiceApp {
   constructor() {
@@ -16,6 +18,8 @@ export class VoiceApp {
     this.db = null;
     this.sync = null;
     this.drive = null;
+    this.undoStack = null;
+    this.commandLog = null;
     this.handler = null;
     this.initialized = false;
     this.config = null;
@@ -34,6 +38,11 @@ export class VoiceApp {
     if (config.idb || typeof indexedDB !== 'undefined') {
       this.db = await createLocalDB(config.idb);
     }
+
+    // Undo stack and command log have no user dependency either; every
+    // command (user and agent) is logged regardless of auth/storage config.
+    this.undoStack = createUndoStack();
+    this.commandLog = createCommandLog({ localDB: this.db });
 
     // Auth must be established before any data-facing capability is wired up.
     if (config.firebase && config.allowlist) {
@@ -91,6 +100,53 @@ export class VoiceApp {
     this.drive = null;
   }
 
+  // Wraps LocalDB so every put/delete auto-records its inverse on the undo
+  // stack, per SPEC.md: "ctx.db local DB API; mutations auto-record on the
+  // undo stack" and "Push every mutation onto the undo stack."
+  _createTrackedDB() {
+    if (!this.db) return null;
+    const db = this.db;
+    const undoStack = this.undoStack;
+    return {
+      async put(storeName, record) {
+        const previousValue = await db.get(storeName, record.id);
+        const saved = await db.put(storeName, record);
+        undoStack.push(recordPutMutation({ db, storeName, id: record.id, previousValue, newValue: saved }));
+        return saved;
+      },
+      async delete(storeName, id) {
+        const previousValue = await db.get(storeName, id);
+        await db.delete(storeName, id);
+        undoStack.push(recordDeleteMutation({ db, storeName, id, previousValue }));
+      },
+      async get(storeName, id) {
+        return db.get(storeName, id);
+      },
+      async getAll(storeName) {
+        return db.getAll(storeName);
+      },
+    };
+  }
+
+  // Logs the command (user or agent, per SPEC.md: "Log every command"), then
+  // wires ctx.db/drive/interpret/log for the app handler. Shared by both the
+  // live dispatch path (handleCommand) and the emulation path (emulate()).
+  async _wireCommandContext(ctx) {
+    const selector = ctx.selector ?? (ctx.element && ctx.element.id ? `#${ctx.element.id}` : null);
+    const logEntry = await this.commandLog.record({
+      selector,
+      type: ctx.type,
+      transcript: ctx.transcript,
+    });
+
+    ctx.db = this._createTrackedDB();
+    ctx.drive = this.drive;
+    ctx.interpret = this.interpret.bind(this);
+    ctx.log = (detail) => this.commandLog.attachDetail(logEntry.id, detail);
+    ctx._logEntry = logEntry;
+    return ctx;
+  }
+
   handle(handler) {
     if (typeof handler !== 'function') {
       throw new Error('Handler must be a function');
@@ -142,11 +198,8 @@ export class VoiceApp {
       }
     }
 
-    // Inject framework APIs into context
-    ctx.interpret = this.interpret.bind(this);
-    ctx.db = this.db;
-    ctx.drive = this.drive;
-    ctx.log = this.logCommand.bind(this);
+    // Log this command and wire ctx.db/drive/interpret/log
+    await this._wireCommandContext(ctx);
 
     // Call the application handler
     if (this.handler) {
@@ -160,13 +213,10 @@ export class VoiceApp {
     return null;
   }
 
-  async logCommand(detail) {
-    // Placeholder for command logging (implemented in log.js)
-    console.log('logCommand() called:', detail);
-  }
-
   async emulate(command) {
-    // Programmatic command dispatch for testing and agents
+    // Programmatic command dispatch for testing and agents.
+    // Drives the same handler as real user input — see SPEC.md: the emulation
+    // API must reach the identical code path so E2E assertions are meaningful.
     // {selector, type, transcript, expected?}
     if (!command.selector) {
       throw new Error('emulate() requires selector');
@@ -177,16 +227,19 @@ export class VoiceApp {
       throw new Error(`Element not found: ${command.selector}`);
     }
 
+    if (this.auth) {
+      this.auth.requireAuth();
+    }
+
     const ctx = {
       element,
+      selector: command.selector,
       type: command.type || 'say',
       transcript: command.transcript || null,
       audioBlob: command.audioBlob || null,
-      interpret: this.interpret.bind(this),
-      db: this.db,
-      drive: this.drive,
-      log: this.logCommand.bind(this),
     };
+
+    await this._wireCommandContext(ctx);
 
     if (this.handler) {
       await this.handler(ctx);

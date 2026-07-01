@@ -5,7 +5,7 @@
 
 const DB_NAME = 'voiceframe';
 const DB_VERSION = 1;
-const STORES = ['mutations', 'metadata', 'outbox'];
+const STORES = ['mutations', 'metadata', 'outbox', 'log', 'fixtures'];
 
 function promisifyRequest(request) {
   return new Promise((resolve, reject) => {
