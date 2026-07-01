@@ -4,12 +4,18 @@
 import { createDispatcher } from './core/dispatcher.js';
 import { createVoiceIO } from './core/voice.js';
 import { createAuth } from './core/auth.js';
+import { createLocalDB } from './core/db.js';
+import { createSync } from './core/sync.js';
+import { createDrive } from './core/drive.js';
 
 export class VoiceApp {
   constructor() {
     this.dispatcher = null;
     this.voiceIO = null;
     this.auth = null;
+    this.db = null;
+    this.sync = null;
+    this.drive = null;
     this.handler = null;
     this.initialized = false;
     this.config = null;
@@ -24,6 +30,11 @@ export class VoiceApp {
   async initialize(config = {}) {
     this.config = config;
 
+    // Local storage has no user dependency and is safe to open immediately.
+    if (config.idb || typeof indexedDB !== 'undefined') {
+      this.db = await createLocalDB(config.idb);
+    }
+
     // Auth must be established before any data-facing capability is wired up.
     if (config.firebase && config.allowlist) {
       this.auth = await createAuth({
@@ -31,6 +42,20 @@ export class VoiceApp {
         firebase: config.firebase,
         allowlist: config.allowlist,
       });
+
+      // Cloud sync and Drive are per-user; wire them up once a user is known,
+      // and tear them down again on sign-out so no data leaks across accounts.
+      this.auth.onChange(({ state, user }) => {
+        if (state === 'signed-in' && user) {
+          this._wireUserData(user).catch(err => console.error('Failed to wire user data:', err));
+        } else {
+          this._unwireUserData();
+        }
+      });
+
+      if (this.auth.isSignedIn()) {
+        await this._wireUserData(this.auth.getUser());
+      }
     }
 
     // Initialize voice I/O
@@ -41,6 +66,29 @@ export class VoiceApp {
 
     this.initialized = true;
     return this;
+  }
+
+  async _wireUserData(user) {
+    if (this.db && this.config.firestore) {
+      this.sync = await createSync({
+        localDB: this.db,
+        firestore: this.config.firestore,
+        uid: user.uid,
+      });
+      this.sync.start();
+    }
+
+    if (this.config.driveClient) {
+      this.drive = await createDrive({ client: this.config.driveClient, appId: this.config.appId });
+    }
+  }
+
+  _unwireUserData() {
+    if (this.sync) {
+      this.sync.stop();
+      this.sync = null;
+    }
+    this.drive = null;
   }
 
   handle(handler) {
