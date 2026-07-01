@@ -190,12 +190,55 @@ app.auth.onChange(({ state, user }) => { ... });
 calls `auth.requireAuth()` first — commands from unauthenticated or
 non-allowlisted users never reach the app handler.
 
+`app.auth.signIn(googleCredential)` is mainly a test/dependency-injection
+hook — it expects an already-constructed credential. Real, user-facing
+sign-in goes through `app.auth.signInWithGooglePopup()` instead (a
+user-gesture-driven OAuth popup), which the UI chrome's Sign in button
+already calls — see UI chrome, below.
+
+## `google-sdk.js` — real Google/Firebase adapters
+
+Not imported by app code. A deploy's bootstrap script (not `app.js`)
+constructs these from raw config and passes the results into
+`VoiceApp.init()`, so app code never touches a Firebase/Google SDK
+directly. See `examples/voice-notes/REAL-KEYS.md` for the full setup walk-through.
+
+```js
+import { createFirebaseAdapter, createGeminiAdapter, createDriveAdapter } from "/src/core/google-sdk.js";
+
+const { auth: firebaseAuth, firebaseApp } = await createFirebaseAdapter(firebaseConfig);
+const geminiClient = await createGeminiAdapter({ firebaseApp });
+const driveClient = createDriveAdapter(() => firebaseAuth.getAccessToken());
+
+const app = await VoiceApp.init({
+  firebase: { auth: firebaseAuth },
+  allowlist: ["you@example.com"],
+  geminiClient,
+  driveClient,
+});
+```
+
+`createFirebaseAdapter` requests the Drive `drive.file` scope during
+sign-in, so one Google popup grants both the Firebase user (checked
+against the allowlist) and a Drive access token — no separate Google
+Identity Services flow needed. `createDriveAdapter`'s upload/download are
+binary-safe (Blob-based, not string/`.text()`-based), so audio blobs
+round-trip without corruption.
+
+The exact Firebase CDN version pinned in `google-sdk.js` has not been
+verified against a live fetch in the environment this framework was built
+in — check it against
+[firebase.google.com/docs/web/setup](https://firebase.google.com/docs/web/setup)
+before relying on it.
+
 ## UI chrome
 
 Mounted automatically (`config.ui !== false`): an Undo button, a Log tab
-listing command history, and a mic/recording indicator. No app code is
-required to use it; `app.ui` exposes the same instance if you need to
-inspect its state (mainly useful in tests):
+listing command history, a mic/recording indicator, and — when
+`firebase`/`allowlist` are configured — a Sign in / Sign out button with
+the signed-in email. No app code is required to use any of it; `app.ui`
+exposes the same instance if you need to inspect its state (mainly useful
+in tests):
 
 ```js
 app.ui.setMicState("listening"); // idle | listening | recording

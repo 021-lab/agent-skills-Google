@@ -7,3 +7,7 @@ node_modules/
 .claude/sdd-cache/
 test-results/
 playwright-report/
+
+# Real credentials for local/manual testing — never commit these.
+# See examples/voice-notes/REAL-KEYS.md and firebase-config.example.js.
+examples/*/firebase-config.js
