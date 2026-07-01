@@ -1,8 +1,10 @@
 # Spec: Voice Web Application Framework («Фреймворк голосового веб-приложения»)
 
-> Status: **Draft for review.** This document specifies the framework and its first
-> acceptance test. No framework or application code is written yet — implementation
-> follows via `/plan` and `/build` after this spec is approved.
+> Status: **Implemented (v1).** The framework (`src/`), its PWA/Hosting config
+> (`src/pwa/`, `firebase.json`), API reference (`docs/framework-api.md`), and the
+> Voice Notes acceptance test (`examples/voice-notes/`) are built and covered by
+> 160 passing tests (`node:test` unit tests + Playwright E2E). WebKit-vs-Chromium
+> and the real-device iPhone smoke check remain as noted in Testing Strategy.
 
 ## Objective
 
