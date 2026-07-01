@@ -9,6 +9,7 @@ import { createSync } from './core/sync.js';
 import { createDrive } from './core/drive.js';
 import { createUndoStack, recordPutMutation, recordDeleteMutation } from './core/undo.js';
 import { createCommandLog } from './core/log.js';
+import { createAI } from './core/ai.js';
 
 export class VoiceApp {
   constructor() {
@@ -20,6 +21,7 @@ export class VoiceApp {
     this.drive = null;
     this.undoStack = null;
     this.commandLog = null;
+    this.ai = null;
     this.handler = null;
     this.initialized = false;
     this.config = null;
@@ -43,6 +45,11 @@ export class VoiceApp {
     // command (user and agent) is logged regardless of auth/storage config.
     this.undoStack = createUndoStack();
     this.commandLog = createCommandLog({ localDB: this.db });
+
+    // AI (Gemini) is optional per-app: only wired up if a client is supplied.
+    if (config.geminiClient) {
+      this.ai = createAI({ client: config.geminiClient, model: config.geminiModel });
+    }
 
     // Auth must be established before any data-facing capability is wired up.
     if (config.firebase && config.allowlist) {
@@ -210,9 +217,17 @@ export class VoiceApp {
   }
 
   async interpret(transcript, schema) {
-    // Placeholder for Gemini integration (implemented in ai.js)
-    console.log('interpret() called:', { transcript, schema });
-    return null;
+    if (!this.ai) {
+      throw new Error('interpret() requires geminiClient to be configured on VoiceApp.init()');
+    }
+    return this.ai.interpret(transcript, schema);
+  }
+
+  async summarize(text) {
+    if (!this.ai) {
+      throw new Error('summarize() requires geminiClient to be configured on VoiceApp.init()');
+    }
+    return this.ai.summarize(text);
   }
 
   async emulate(command) {
