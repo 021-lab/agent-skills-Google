@@ -160,8 +160,10 @@ export class VoiceApp {
       this.auth.requireAuth();
     }
 
-    // If type is "say", capture voice input
-    if (ctx.type === 'say') {
+    // If type is "say" and no transcript was supplied yet, capture voice input.
+    // A pre-supplied transcript (e.g. from a test harness driving handleCommand
+    // directly) means capture has already happened upstream — skip re-listening.
+    if (ctx.type === 'say' && !ctx.transcript) {
       try {
         // Start listening for speech
         await this.voiceIO.startListening();
