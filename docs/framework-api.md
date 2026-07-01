@@ -236,9 +236,12 @@ before relying on it.
 Mounted automatically (`config.ui !== false`): an Undo button, a Log tab
 listing command history, a mic/recording indicator, and — when
 `firebase`/`allowlist` are configured — a Sign in / Sign out button with
-the signed-in email. No app code is required to use any of it; `app.ui`
-exposes the same instance if you need to inspect its state (mainly useful
-in tests):
+the signed-in email. A rejected sign-in (Google's OAuth consent screen
+blocking a non-Test-user — see `examples/voice-notes/REAL-KEYS.md` —
+or the user closing the popup) shows a visible error message next to the
+button, not just a `console.error`. No app code is required to use any of
+it; `app.ui` exposes the same instance if you need to inspect its state
+(mainly useful in tests):
 
 ```js
 app.ui.setMicState("listening"); // idle | listening | recording

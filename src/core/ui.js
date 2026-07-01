@@ -54,8 +54,12 @@ export class UI {
     // The sign-in button/status only renders when an auth provider is
     // configured — apps that don't pass firebase/allowlist to
     // VoiceApp.init() get the same chrome as before this feature existed.
+    // auth-error surfaces a rejected sign-in (e.g. Google's OAuth consent
+    // screen blocking a user who isn't on the project's Test users list —
+    // see REAL-KEYS.md) — without it, a blocked user only sees the popup
+    // close with nothing in the page explaining why.
     const authMarkup = this.auth
-      ? `<span id="auth-status"></span><button id="sign-in-btn">Sign in</button>`
+      ? `<span id="auth-status"></span><button id="sign-in-btn">Sign in</button><div id="auth-error" hidden></div>`
       : '';
 
     shadow.innerHTML = `
@@ -66,6 +70,8 @@ export class UI {
         #mic-indicator.listening { background:#3b82f6; }
         #mic-indicator.recording { background:#ef4444; }
         #auth-status { font-size:12px; margin-right:6px; }
+        #auth-error { position:absolute; bottom:36px; right:0; background:#fef2f2; color:#991b1b; border:1px solid #fecaca; padding:6px 8px; font-size:12px; max-width:260px; }
+        #auth-error[hidden] { display:none; }
         #log-panel { position:absolute; bottom:36px; right:0; background:#fff; border:1px solid #ccc; max-height:240px; overflow:auto; min-width:220px; }
         #log-panel[hidden] { display:none; }
       </style>
@@ -85,6 +91,7 @@ export class UI {
       logPanel: shadow.getElementById('log-panel'),
       signInBtn: shadow.getElementById('sign-in-btn'),
       authStatus: shadow.getElementById('auth-status'),
+      authError: shadow.getElementById('auth-error'),
     });
 
     this.host = host;
@@ -132,11 +139,13 @@ export class UI {
 
   // Real sign-in requires a user gesture (Safari blocks non-gesture
   // popups), so this must be triggered from a click — never from the
-  // command dispatcher. Errors (e.g. the user closing the popup) are
-  // logged, not thrown, since there's no caller to catch a click handler's
-  // rejection.
+  // command dispatcher. Errors (e.g. Google's OAuth consent screen
+  // rejecting a user who isn't on the project's Test users list, or the
+  // user closing the popup) are shown in the chrome, not just logged —
+  // otherwise a blocked user sees the popup close with no explanation.
   async handleSignInClick() {
     if (!this.auth) return;
+    this._clearAuthError();
     try {
       if (this.auth.isSignedIn()) {
         await this.auth.signOut();
@@ -145,8 +154,21 @@ export class UI {
       }
     } catch (err) {
       console.error('Sign-in error:', err);
+      this._showAuthError(err.message || 'Sign-in failed');
     }
     this.updateAuthState();
+  }
+
+  _showAuthError(message) {
+    if (!this.elements.authError) return;
+    this.elements.authError.textContent = message;
+    this.elements.authError.hidden = false;
+  }
+
+  _clearAuthError() {
+    if (!this.elements.authError) return;
+    this.elements.authError.textContent = '';
+    this.elements.authError.hidden = true;
   }
 
   updateAuthState() {
@@ -157,6 +179,7 @@ export class UI {
       const user = this.auth.getUser();
       this.elements.authStatus.textContent = signedIn && user?.email ? user.email : '';
     }
+    if (signedIn) this._clearAuthError();
   }
 
   setMicState(state) {

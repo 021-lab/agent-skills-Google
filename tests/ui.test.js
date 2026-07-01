@@ -197,6 +197,7 @@ test('UI: sign-in button reflects signed-out state initially', () => {
     logPanel: createMockElement(),
     signInBtn: createMockElement(),
     authStatus: createMockElement(),
+    authError: createMockElement(),
   };
   ui.bindElements(elements);
 
@@ -214,6 +215,7 @@ test('UI: sign-in button reflects already-signed-in state on bind', () => {
     logPanel: createMockElement(),
     signInBtn: createMockElement(),
     authStatus: createMockElement(),
+    authError: createMockElement(),
   };
   ui.bindElements(elements);
 
@@ -232,6 +234,7 @@ test('UI: clicking sign-in triggers signInWithGooglePopup and updates the button
     logPanel: createMockElement(),
     signInBtn: createMockElement(),
     authStatus: createMockElement(),
+    authError: createMockElement(),
   };
   ui.bindElements(elements);
 
@@ -252,6 +255,7 @@ test('UI: clicking sign-out when already signed in calls signOut', async () => {
     logPanel: createMockElement(),
     signInBtn: createMockElement(),
     authStatus: createMockElement(),
+    authError: createMockElement(),
   };
   ui.bindElements(elements);
   assert.strictEqual(elements.signInBtn.textContent, 'Sign out');
@@ -274,6 +278,7 @@ test('UI: a failed sign-in popup is logged, not thrown, and leaves the button in
     logPanel: createMockElement(),
     signInBtn: createMockElement(),
     authStatus: createMockElement(),
+    authError: createMockElement(),
   };
   ui.bindElements(elements);
 
@@ -289,6 +294,102 @@ test('UI: a failed sign-in popup is logged, not thrown, and leaves the button in
 
   assert.ok(loggedError, 'error should be logged, not thrown to an unhandled rejection');
   assert.strictEqual(elements.signInBtn.textContent, 'Sign in');
+  assert.strictEqual(elements.authError.hidden, false, 'error message should become visible');
+  assert.strictEqual(elements.authError.textContent, 'popup closed by user');
+});
+
+test('UI: a Google-blocked sign-in (e.g. not on the Test users list) shows a visible error', async () => {
+  const auth = createMockAuth();
+  auth._setPopupError(new Error('Access blocked: this app has not completed Google verification'));
+  const ui = new UI({ undoStack: new UndoStack(), commandLog: new CommandLog(), auth });
+  const elements = {
+    undoBtn: createMockElement(),
+    logTab: createMockElement(),
+    micIndicator: createMockElement(),
+    logPanel: createMockElement(),
+    signInBtn: createMockElement(),
+    authStatus: createMockElement(),
+    authError: createMockElement(),
+  };
+  ui.bindElements(elements);
+
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    elements.signInBtn.click();
+    await new Promise((r) => setTimeout(r, 0));
+  } finally {
+    console.error = originalError;
+  }
+
+  assert.strictEqual(elements.authError.hidden, false);
+  assert.match(elements.authError.textContent, /Access blocked/);
+});
+
+test('UI: a successful sign-in clears any previously shown error', async () => {
+  const auth = createMockAuth();
+  auth._setPopupError(new Error('temporary failure'));
+  const ui = new UI({ undoStack: new UndoStack(), commandLog: new CommandLog(), auth });
+  const elements = {
+    undoBtn: createMockElement(),
+    logTab: createMockElement(),
+    micIndicator: createMockElement(),
+    logPanel: createMockElement(),
+    signInBtn: createMockElement(),
+    authStatus: createMockElement(),
+    authError: createMockElement(),
+  };
+  ui.bindElements(elements);
+
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    elements.signInBtn.click(); // fails, shows error
+    await new Promise((r) => setTimeout(r, 0));
+    assert.strictEqual(elements.authError.hidden, false);
+
+    auth._setPopupError(null);
+    auth._setPopupResult({ email: 'owner@example.com', uid: 'u1' });
+    elements.signInBtn.click(); // succeeds this time
+    await new Promise((r) => setTimeout(r, 0));
+  } finally {
+    console.error = originalError;
+  }
+
+  assert.strictEqual(elements.authError.hidden, true, 'error should clear on successful sign-in');
+  assert.strictEqual(elements.authError.textContent, '');
+});
+
+test('UI: starting a new sign-in attempt clears the previous error before retrying', async () => {
+  const auth = createMockAuth();
+  auth._setPopupError(new Error('first failure'));
+  const ui = new UI({ undoStack: new UndoStack(), commandLog: new CommandLog(), auth });
+  const elements = {
+    undoBtn: createMockElement(),
+    logTab: createMockElement(),
+    micIndicator: createMockElement(),
+    logPanel: createMockElement(),
+    signInBtn: createMockElement(),
+    authStatus: createMockElement(),
+    authError: createMockElement(),
+  };
+  ui.bindElements(elements);
+
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    elements.signInBtn.click();
+    await new Promise((r) => setTimeout(r, 0));
+    assert.strictEqual(elements.authError.textContent, 'first failure');
+
+    auth._setPopupError(new Error('second failure'));
+    elements.signInBtn.click();
+    await new Promise((r) => setTimeout(r, 0));
+  } finally {
+    console.error = originalError;
+  }
+
+  assert.strictEqual(elements.authError.textContent, 'second failure', 'stale error text should not linger');
 });
 
 test('UI: auth.onChange notifications keep the button in sync with external state changes', async () => {
@@ -301,6 +402,7 @@ test('UI: auth.onChange notifications keep the button in sync with external stat
     logPanel: createMockElement(),
     signInBtn: createMockElement(),
     authStatus: createMockElement(),
+    authError: createMockElement(),
   };
   ui.bindElements(elements);
 

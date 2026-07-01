@@ -73,3 +73,29 @@ test('after sign-in, a command reaches the app handler; after sign-out, it is bl
   });
   expect(rejected).toBe(true);
 });
+
+test('a Google-blocked sign-in (e.g. not on the Test users list) shows a visible error, not just a console log', async ({ page }) => {
+  await page.goto('/tests/fixtures/signin/index.html');
+  await page.waitForFunction(() => window.__voiceframeApp && window.__voiceframeApp.ui);
+
+  // Simulate what Google's OAuth consent screen does when a user isn't on
+  // the project's Test users list — see REAL-KEYS.md — without needing a
+  // real non-allowlisted Google account in this environment.
+  await page.evaluate(() => {
+    window.__voiceframeApp.auth.firebase.auth.signInWithGooglePopup = async () => {
+      throw new Error('Access blocked: this app has not completed the Google verification process');
+    };
+  });
+
+  const errorBefore = await page.evaluate(() => window.__voiceframeApp.ui.elements.authError.hidden);
+  expect(errorBefore).toBe(true);
+
+  await page.evaluate(() => window.__voiceframeApp.ui.elements.signInBtn.click());
+  await page.waitForFunction(() => window.__voiceframeApp.ui.elements.authError.hidden === false);
+
+  const errorText = await page.evaluate(() => window.__voiceframeApp.ui.elements.authError.textContent);
+  expect(errorText).toMatch(/Access blocked/);
+
+  const isSignedIn = await page.evaluate(() => window.__voiceframeApp.auth.isSignedIn());
+  expect(isSignedIn).toBe(false);
+});
