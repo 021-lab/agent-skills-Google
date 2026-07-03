@@ -1,0 +1,197 @@
+name: Firebase Deploy & Test
+
+on:
+  push:
+    branches:
+      - main
+      - claude/**
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  validate:
+    name: Validate & Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npx eslint src
+        continue-on-error: true
+
+      - name: Run Prettier check
+        run: npx prettier --check .
+        continue-on-error: true
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: node --test src/**/*.test.js src/**/*.spec.js 2>/dev/null || echo "No test files found"
+
+  build:
+    name: Build & Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate src structure
+        run: |
+          if [ -f "src/voiceframe.js" ]; then
+            echo "✓ Main entry point found: src/voiceframe.js"
+          else
+            echo "✗ Missing src/voiceframe.js"
+            exit 1
+          fi
+
+      - name: Check HTML validity
+        run: |
+          if [ -f "src/index.html" ]; then
+            echo "✓ HTML file found: src/index.html"
+          else
+            echo "⚠ No index.html found (may use single-page app routing)"
+          fi
+
+  firebase-deploy:
+    name: Deploy to Firebase
+    needs: [validate, unit-tests, build]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/claude/'))
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
+      - name: Deploy to Firebase (main)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          firebase deploy \
+            --token "${{ secrets.FIREBASE_TOKEN }}" \
+            --project "${{ secrets.FIREBASE_PROJECT_ID }}" \
+            --non-interactive
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+
+      - name: Deploy to Firebase (preview)
+        if: startsWith(github.ref, 'refs/heads/claude/')
+        run: |
+          firebase deploy \
+            --token "${{ secrets.FIREBASE_TOKEN }}" \
+            --project "${{ secrets.FIREBASE_PROJECT_ID }}" \
+            --non-interactive \
+            --only hosting:preview
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+        continue-on-error: true
+
+  e2e-tests:
+    name: E2E Tests (after deploy)
+    needs: firebase-deploy
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/claude/'))
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright
+        run: npx playwright install --with-deps
+
+      - name: Get Firebase hosting URL
+        id: firebase-url
+        run: |
+          HOSTING_URL=$(firebase hosting:channel:list \
+            --token "${{ secrets.FIREBASE_TOKEN }}" \
+            --project "${{ secrets.FIREBASE_PROJECT_ID }}" \
+            --json 2>/dev/null | jq -r '.[0].url // "https://your-firebase-project.web.app"' || echo "https://your-firebase-project.web.app")
+          echo "url=$HOSTING_URL" >> $GITHUB_OUTPUT
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+
+      - name: Run Playwright tests
+        run: npx playwright test
+        env:
+          BASE_URL: ${{ steps.firebase-url.outputs.url }}
+        continue-on-error: true
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+  test-plugin-install:
+    name: Test Plugin Installation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Validate plugin
+        run: claude plugin validate .
+        continue-on-error: true

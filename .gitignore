@@ -5,3 +5,22 @@ node_modules/
 *.log
 .claude/.simplify-ignore-cache/
 .claude/sdd-cache/
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report
+/playwright/.cache/
+
+# Firebase
+.firebase/
+.firebaserc
+.runtimeconfig.json
+
+# IDE & Dev
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store

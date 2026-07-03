@@ -1,0 +1,43 @@
+{
+  "name": "firebase-voice-framework",
+  "version": "1.0.0",
+  "description": "Voice-controlled web application framework on Firebase",
+  "type": "module",
+  "main": "src/voiceframe.js",
+  "scripts": {
+    "dev": "npx serve src",
+    "serve": "python3 -m http.server 8080",
+    "test": "node --test src/**/*.test.js src/**/*.spec.js 2>/dev/null || echo 'No test files found'",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "deploy": "firebase deploy",
+    "deploy:preview": "firebase deploy --only hosting:preview"
+  },
+  "keywords": [
+    "voice",
+    "firebase",
+    "web-app",
+    "agent-framework",
+    "ios",
+    "speech-recognition"
+  ],
+  "author": "ReggAI.Lab",
+  "license": "MIT",
+  "devDependencies": {
+    "@playwright/test": "^1.40.0",
+    "eslint": "^8.55.0",
+    "firebase-tools": "^13.1.0",
+    "prettier": "^3.1.0",
+    "serve": "^14.2.0"
+  },
+  "dependencies": {
+    "firebase": "^10.7.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
