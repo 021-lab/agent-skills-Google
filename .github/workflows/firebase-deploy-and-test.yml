@@ -154,19 +154,51 @@ jobs:
       - name: Get Firebase hosting URL
         id: firebase-url
         run: |
+          echo "Retrieving Firebase Hosting URL..."
           HOSTING_URL=$(firebase hosting:channel:list \
             --token "${{ secrets.FIREBASE_TOKEN }}" \
             --project "${{ secrets.FIREBASE_PROJECT_ID }}" \
-            --json 2>/dev/null | jq -r '.[0].url // "https://your-firebase-project.web.app"' || echo "https://your-firebase-project.web.app")
+            --json 2>/dev/null | jq -r '.[0].url // empty')
+
+          if [ -z "$HOSTING_URL" ]; then
+            echo "Warning: Could not retrieve preview channel URL, using main channel"
+            HOSTING_URL=$(firebase hosting:sites:list \
+              --token "${{ secrets.FIREBASE_TOKEN }}" \
+              --project "${{ secrets.FIREBASE_PROJECT_ID }}" \
+              --json 2>/dev/null | jq -r '.[0].defaultUrl // empty')
+          fi
+
+          if [ -z "$HOSTING_URL" ]; then
+            echo "Error: Could not retrieve Firebase hosting URL"
+            exit 1
+          fi
+
+          echo "Firebase URL: $HOSTING_URL"
           echo "url=$HOSTING_URL" >> $GITHUB_OUTPUT
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
 
+      - name: Verify Firebase URL is accessible
+        run: |
+          URL="${{ steps.firebase-url.outputs.url }}"
+          echo "Testing connectivity to: $URL"
+          for i in {1..5}; do
+            if curl -s -m 10 "$URL" > /dev/null 2>&1; then
+              echo "✓ Firebase URL is accessible"
+              exit 0
+            fi
+            echo "Attempt $i/5 - Retrying in 5 seconds..."
+            sleep 5
+          done
+          echo "Warning: Firebase URL may not be accessible, proceeding anyway"
+        continue-on-error: true
+
       - name: Run Playwright tests
-        run: npx playwright test
+        run: npx playwright test --reporter=list
         env:
           BASE_URL: ${{ steps.firebase-url.outputs.url }}
+        timeout-minutes: 5
         continue-on-error: true
 
       - name: Upload Playwright report

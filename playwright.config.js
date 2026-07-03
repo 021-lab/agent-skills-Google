@@ -5,6 +5,9 @@ import { defineConfig, devices } from '@playwright/test';
  * Supports both local development and deployed Firebase URLs
  */
 
+const baseURL = process.env.BASE_URL || 'http://localhost:8080';
+const isUsingLocalServer = !baseURL.includes('firebase') && !baseURL.startsWith('https://');
+
 export default defineConfig({
   testDir: './tests/e2e',
   testMatch: '**/*.spec.js',
@@ -13,6 +16,7 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
+  timeout: 30000,
 
   reporter: [
     ['html'],
@@ -21,10 +25,12 @@ export default defineConfig({
   ],
 
   use: {
-    baseURL: process.env.BASE_URL || 'http://localhost:8080',
+    baseURL,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
+    navigationTimeout: 30000,
+    actionTimeout: 10000,
   },
 
   projects: [
@@ -40,7 +46,6 @@ export default defineConfig({
       name: 'webkit',
       use: { ...devices['Desktop Safari'] },
     },
-    // Test on iPad and iPhone (iOS Safari only per spec)
     {
       name: 'iPad',
       use: { ...devices['iPad Pro'] },
@@ -51,10 +56,12 @@ export default defineConfig({
     },
   ],
 
-  webServer: {
-    command: 'npm run serve',
-    url: 'http://localhost:8080',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120000,
-  },
+  ...(isUsingLocalServer && {
+    webServer: {
+      command: 'npm run serve',
+      url: 'http://localhost:8080',
+      reuseExistingServer: !process.env.CI,
+      timeout: 120000,
+    },
+  }),
 });
