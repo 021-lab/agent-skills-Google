@@ -16,8 +16,13 @@ async function main() {
   const auth = new GoogleAuth({
     scopes: ['https://www.googleapis.com/auth/identitytoolkit'],
   });
-  const client = await auth.getClient();
-  const headers = await client.getRequestHeaders();
+  const accessToken = await auth.getAccessToken();
+  if (!accessToken) {
+    throw new Error('Unable to acquire an OAuth access token for identitytoolkit.googleapis.com');
+  }
+  const headers = {
+    authorization: `Bearer ${accessToken}`,
+  };
   const configUrl = `https://identitytoolkit.googleapis.com/admin/v2/projects/${projectId}/config`;
 
   const currentResponse = await fetch(configUrl, { headers });
