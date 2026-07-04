@@ -5,12 +5,8 @@
 // perform its own I/O." A deploy's bootstrap script (not app.js) constructs
 // these adapters from raw config and passes them into VoiceApp.init().
 //
-// NOTE ON VERIFICATION: the exact Firebase CDN paths/version below have not
-// been confirmed against a live network fetch in this environment. Verify
-// against https://firebase.google.com/docs/web/setup before relying on this
-// in production, and update FIREBASE_SDK_VERSION accordingly.
-
-const FIREBASE_SDK_VERSION = '10.14.1';
+// Verified on 2026-07-04: firebase-ai.js exists on the CDN for 12.15.0.
+const FIREBASE_SDK_VERSION = '12.15.0';
 const FIREBASE_CDN = `https://www.gstatic.com/firebasejs/${FIREBASE_SDK_VERSION}`;
 
 // Drive scope requested alongside Firebase sign-in so one popup grants both
