@@ -57,13 +57,13 @@
 
   <div class="panel">
     <strong>1. Save the browser session locally</strong>
-    <pre id="save-command">FIREBASE_PROJECT_ID=&lt;project-id&gt; npm run e2e:auth:save</pre>
+    <pre id="save-command">FIREBASE_PROJECT_ID=&lt;project-id&gt; npm --prefix /Users/AIDev/Codex/firebase-voice-framework run e2e:auth:save</pre>
     <p class="muted">This opens Chromium, waits for a real sign-in, then writes <code>playwright/.auth/voice-notes-google.json</code>.</p>
   </div>
 
   <div class="panel">
     <strong>2. Upload the saved session into GitHub Actions</strong>
-    <pre id="upload-command">npm run e2e:auth:upload-secret</pre>
+    <pre id="upload-command">npm --prefix /Users/AIDev/Codex/firebase-voice-framework run e2e:auth:upload-secret</pre>
     <p class="muted">This updates the GitHub secret <code>E2E_PLAYWRIGHT_STORAGE_STATE_B64</code>.</p>
   </div>
 
@@ -99,8 +99,8 @@
       authLink.href = url;
       authLink.textContent = siteId ? url : 'Fill in a Firebase project id';
       saveCommand.textContent = projectId
-        ? `FIREBASE_PROJECT_ID=${projectId} npm run e2e:auth:save`
-        : 'FIREBASE_PROJECT_ID=<project-id> npm run e2e:auth:save';
+        ? `FIREBASE_PROJECT_ID=${projectId} npm --prefix /Users/AIDev/Codex/firebase-voice-framework run e2e:auth:save`
+        : 'FIREBASE_PROJECT_ID=<project-id> npm --prefix /Users/AIDev/Codex/firebase-voice-framework run e2e:auth:save';
     }
 
     projectIdInput.addEventListener('input', render);

@@ -19,7 +19,7 @@ This repo now runs the real Voice Notes smoke test against a stable Firebase Hos
 3. Run:
 
 ```bash
-FIREBASE_PROJECT_ID=<project-id> npm run e2e:auth:save
+FIREBASE_PROJECT_ID=<project-id> npm --prefix /Users/AIDev/Codex/firebase-voice-framework run e2e:auth:save
 ```
 
 4. Sign in with the real allowlisted Google account on the opened stable URL.
@@ -32,7 +32,7 @@ playwright/.auth/voice-notes-google.json
 6. Upload that session into GitHub Actions:
 
 ```bash
-npm run e2e:auth:upload-secret
+npm --prefix /Users/AIDev/Codex/firebase-voice-framework run e2e:auth:upload-secret
 ```
 
 That command updates the GitHub Actions secret `E2E_PLAYWRIGHT_STORAGE_STATE_B64`.

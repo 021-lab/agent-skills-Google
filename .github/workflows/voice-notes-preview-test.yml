@@ -248,8 +248,8 @@ jobs:
               echo "### Voice Notes E2E browser session is not configured"
               echo
               echo "- Stable auth URL: ${{ steps.deploy.outputs.stable_url }}"
-              echo "- Save a session locally with \`FIREBASE_PROJECT_ID=$FIREBASE_PROJECT_ID npm run e2e:auth:save\`"
-              echo "- Upload it with \`npm run e2e:auth:upload-secret\`"
+              echo "- Save a session locally with \`FIREBASE_PROJECT_ID=$FIREBASE_PROJECT_ID npm --prefix /Users/AIDev/Codex/firebase-voice-framework run e2e:auth:save\`"
+              echo "- Upload it with \`npm --prefix /Users/AIDev/Codex/firebase-voice-framework run e2e:auth:upload-secret\`"
               echo "- Helper page in repo: \`docs/voice-notes-e2e-auth.html\`"
             } >> "$GITHUB_STEP_SUMMARY"
             echo "Missing GitHub secret E2E_PLAYWRIGHT_STORAGE_STATE_B64"
