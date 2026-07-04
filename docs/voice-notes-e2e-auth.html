@@ -45,6 +45,10 @@
     This helper computes the stable Firebase Hosting URL used by the real Drive/Gemini smoke test
     and shows the two local commands needed to save and upload the signed-in browser session.
   </p>
+  <p class="muted">
+    This page is only an instruction page. The real Google sign-in button appears on the stable
+    <code>https://&lt;project-id&gt;-e2e.web.app/examples/voice-notes/index.html</code> link below.
+  </p>
 
   <label for="project-id">Firebase project id</label>
   <input id="project-id" name="project-id" placeholder="ai-labg" />
@@ -58,12 +62,14 @@
   <div class="panel">
     <strong>1. Save the browser session locally</strong>
     <pre id="save-command">FIREBASE_PROJECT_ID=&lt;project-id&gt; npm --prefix /Users/AIDev/Codex/firebase-voice-framework run e2e:auth:save</pre>
+    <pre id="save-script-command">/Users/AIDev/Codex/firebase-voice-framework/scripts/voice-notes-e2e-auth-save.sh &lt;project-id&gt;</pre>
     <p class="muted">This opens Chromium, waits for a real sign-in, then writes <code>playwright/.auth/voice-notes-google.json</code>.</p>
   </div>
 
   <div class="panel">
     <strong>2. Upload the saved session into GitHub Actions</strong>
     <pre id="upload-command">npm --prefix /Users/AIDev/Codex/firebase-voice-framework run e2e:auth:upload-secret</pre>
+    <pre>/Users/AIDev/Codex/firebase-voice-framework/scripts/voice-notes-e2e-auth-upload.sh</pre>
     <p class="muted">This updates the GitHub secret <code>E2E_PLAYWRIGHT_STORAGE_STATE_B64</code>.</p>
   </div>
 
@@ -80,6 +86,7 @@
     const projectIdInput = document.getElementById('project-id');
     const authLink = document.getElementById('auth-link');
     const saveCommand = document.getElementById('save-command');
+    const saveScriptCommand = document.getElementById('save-script-command');
 
     function resolveSiteId(projectId) {
       const cleaned = (projectId || '')
@@ -101,6 +108,9 @@
       saveCommand.textContent = projectId
         ? `FIREBASE_PROJECT_ID=${projectId} npm --prefix /Users/AIDev/Codex/firebase-voice-framework run e2e:auth:save`
         : 'FIREBASE_PROJECT_ID=<project-id> npm --prefix /Users/AIDev/Codex/firebase-voice-framework run e2e:auth:save';
+      saveScriptCommand.textContent = projectId
+        ? `/Users/AIDev/Codex/firebase-voice-framework/scripts/voice-notes-e2e-auth-save.sh ${projectId}`
+        : '/Users/AIDev/Codex/firebase-voice-framework/scripts/voice-notes-e2e-auth-save.sh <project-id>';
     }
 
     projectIdInput.addEventListener('input', render);
