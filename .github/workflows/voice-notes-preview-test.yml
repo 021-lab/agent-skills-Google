@@ -126,8 +126,31 @@ jobs:
           printf '%s' "$GCP_PRIVATE_KEY_JSON" > "$RUNNER_TEMP/firebase-service-account.json"
           echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/firebase-service-account.json" >> "$GITHUB_ENV"
 
+      - name: Validate Firebase service account JSON
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const raw = fs.readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS, 'utf8');
+          let parsed;
+          try {
+            parsed = JSON.parse(raw);
+          } catch (error) {
+            throw new Error(`GCP_PRIVATE_KEY_JSON is not valid JSON: ${error.message}`);
+          }
+          for (const key of ['type', 'project_id', 'client_email', 'private_key']) {
+            if (!parsed[key]) {
+              throw new Error(`GCP_PRIVATE_KEY_JSON is missing required key: ${key}`);
+            }
+          }
+          console.log(`service-account-project=${parsed.project_id}`);
+          console.log(`service-account-client=${parsed.client_email}`);
+          NODE
+
       - name: Install Firebase CLI
         run: npm install --global firebase-tools
+
+      - name: Verify Firebase CLI access
+        run: firebase projects:list --json
 
       - name: Deploy branch preview channel
         id: deploy
@@ -143,6 +166,7 @@ jobs:
           firebase hosting:channel:deploy "$channel_id" \
             --project "$FIREBASE_PROJECT_ID" \
             --expires 7d \
+            --debug \
             --json > "$RUNNER_TEMP/firebase-deploy.json"
 
           node <<'NODE' >> "$GITHUB_OUTPUT"
