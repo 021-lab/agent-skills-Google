@@ -76,28 +76,39 @@ jobs:
           cat > examples/voice-notes/firebase-config.js <<'CONFIG'
           import { createFirebaseAdapter, createGeminiAdapter, createDriveAdapter } from '/src/core/google-sdk.js';
 
-          const firebaseConfig = {
-            apiKey: '__FIREBASE_WEB_API_KEY__',
-            authDomain: '__FIREBASE_AUTH_DOMAIN__',
-            projectId: '__FIREBASE_PROJECT_ID__',
-            storageBucket: '__FIREBASE_STORAGE_BUCKET__',
-            messagingSenderId: '__FIREBASE_MESSAGING_SENDER_ID__',
-            appId: '__FIREBASE_APP_ID__',
-          };
+          window.__voiceNotesBootstrap = { status: 'starting' };
 
-          const ALLOWLIST = ['__E2E_GOOGLE_EMAIL__'.toLowerCase()];
+          try {
+            const firebaseConfig = {
+              apiKey: '__FIREBASE_WEB_API_KEY__',
+              authDomain: '__FIREBASE_AUTH_DOMAIN__',
+              projectId: '__FIREBASE_PROJECT_ID__',
+              storageBucket: '__FIREBASE_STORAGE_BUCKET__',
+              messagingSenderId: '__FIREBASE_MESSAGING_SENDER_ID__',
+              appId: '__FIREBASE_APP_ID__',
+            };
 
-          const { auth: firebaseAuth, firebaseApp } = await createFirebaseAdapter(firebaseConfig);
-          const geminiClient = await createGeminiAdapter({ firebaseApp });
-          const driveClient = createDriveAdapter(() => firebaseAuth.getAccessToken());
+            const ALLOWLIST = ['__E2E_GOOGLE_EMAIL__'.toLowerCase()];
 
-          window.__voiceNotesConfig = {
-            firebase: { auth: firebaseAuth },
-            allowlist: ALLOWLIST,
-            geminiClient,
-            driveClient,
-            debug: true,
-          };
+            const { auth: firebaseAuth, firebaseApp } = await createFirebaseAdapter(firebaseConfig);
+            const geminiClient = await createGeminiAdapter({ firebaseApp });
+            const driveClient = createDriveAdapter(() => firebaseAuth.getAccessToken());
+
+            window.__voiceNotesConfig = {
+              firebase: { auth: firebaseAuth },
+              allowlist: ALLOWLIST,
+              geminiClient,
+              driveClient,
+              debug: true,
+            };
+            window.__voiceNotesBootstrap = { status: 'ready' };
+          } catch (error) {
+            window.__voiceNotesBootstrap = {
+              status: 'error',
+              message: error instanceof Error ? error.message : String(error),
+            };
+            throw error;
+          }
           CONFIG
 
           node <<'NODE'
