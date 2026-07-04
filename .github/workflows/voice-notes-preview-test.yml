@@ -173,9 +173,11 @@ jobs:
           const fs = require('node:fs');
           const data = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/firebase-deploy.json', 'utf8'));
           const result = data.result || {};
+          const nestedResult = Object.values(result).find((value) => value && typeof value === 'object');
           const url =
             result.url ||
             result.urls?.[0] ||
+            nestedResult?.url ||
             Object.values(result).find((value) => typeof value === 'string' && value.startsWith('https://'));
           if (!url) {
             console.error(JSON.stringify(data, null, 2));
