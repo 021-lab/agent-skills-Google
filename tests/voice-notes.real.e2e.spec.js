@@ -51,9 +51,14 @@ async function completeGooglePopupLogin(popup) {
 
 test('deployed Voice Notes signs in and records a real note', async ({ page }) => {
   requireRealEnv();
+  const pageErrors = [];
+  page.on('pageerror', (error) => pageErrors.push(error.message));
 
   await page.goto('/examples/voice-notes/index.html');
   await page.waitForFunction(() => window.__voiceNotesApp && window.__voiceNotesApp.ui);
+
+  const authReady = await page.evaluate(() => Boolean(window.__voiceNotesApp.auth));
+  expect(authReady, `Voice Notes app initialized without auth. Page errors: ${pageErrors.join(' | ')}`).toBe(true);
 
   if (!(await page.evaluate(() => window.__voiceNotesApp.auth.isSignedIn()))) {
     const popupPromise = page.waitForEvent('popup');
