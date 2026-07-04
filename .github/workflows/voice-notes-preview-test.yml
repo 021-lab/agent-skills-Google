@@ -1,0 +1,185 @@
+name: Voice Notes Preview Smoke Test
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  voice-notes-real-smoke:
+    name: Deploy preview and run real Voice Notes smoke test
+    runs-on: ubuntu-latest
+    env:
+      FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Verify required secrets are present
+        env:
+          GCP_PRIVATE_KEY_JSON: ${{ secrets.GCP_PRIVATE_KEY_JSON }}
+          E2E_GOOGLE_EMAIL: ${{ secrets.E2E_GOOGLE_EMAIL }}
+          E2E_GOOGLE_PASSWORD: ${{ secrets.E2E_GOOGLE_PASSWORD }}
+          FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+          FIREBASE_AUTH_DOMAIN: ${{ secrets.FIREBASE_AUTH_DOMAIN }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+          FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}
+          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+        run: |
+          missing=()
+          for name in \
+            GCP_PRIVATE_KEY_JSON \
+            E2E_GOOGLE_EMAIL \
+            E2E_GOOGLE_PASSWORD \
+            FIREBASE_WEB_API_KEY \
+            FIREBASE_AUTH_DOMAIN \
+            FIREBASE_PROJECT_ID \
+            FIREBASE_STORAGE_BUCKET \
+            FIREBASE_MESSAGING_SENDER_ID \
+            FIREBASE_APP_ID
+          do
+            if [ -z "${!name}" ]; then
+              missing+=("$name")
+            fi
+          done
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing required GitHub Actions secrets:\n'
+            printf '  - %s\n' "${missing[@]}"
+            exit 1
+          fi
+
+      - name: Generate Voice Notes Firebase config
+        env:
+          E2E_GOOGLE_EMAIL: ${{ secrets.E2E_GOOGLE_EMAIL }}
+          FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+          FIREBASE_AUTH_DOMAIN: ${{ secrets.FIREBASE_AUTH_DOMAIN }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+          FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}
+          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+        run: |
+          cat > examples/voice-notes/firebase-config.js <<'CONFIG'
+          import { createFirebaseAdapter, createGeminiAdapter, createDriveAdapter } from '/src/core/google-sdk.js';
+
+          const firebaseConfig = {
+            apiKey: '__FIREBASE_WEB_API_KEY__',
+            authDomain: '__FIREBASE_AUTH_DOMAIN__',
+            projectId: '__FIREBASE_PROJECT_ID__',
+            storageBucket: '__FIREBASE_STORAGE_BUCKET__',
+            messagingSenderId: '__FIREBASE_MESSAGING_SENDER_ID__',
+            appId: '__FIREBASE_APP_ID__',
+          };
+
+          const ALLOWLIST = ['__E2E_GOOGLE_EMAIL__'.toLowerCase()];
+
+          const { auth: firebaseAuth, firebaseApp } = await createFirebaseAdapter(firebaseConfig);
+          const geminiClient = await createGeminiAdapter({ firebaseApp });
+          const driveClient = createDriveAdapter(() => firebaseAuth.getAccessToken());
+
+          window.__voiceNotesConfig = {
+            firebase: { auth: firebaseAuth },
+            allowlist: ALLOWLIST,
+            geminiClient,
+            driveClient,
+            debug: true,
+          };
+          CONFIG
+
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = 'examples/voice-notes/firebase-config.js';
+          const replacements = {
+            __FIREBASE_WEB_API_KEY__: process.env.FIREBASE_WEB_API_KEY,
+            __FIREBASE_AUTH_DOMAIN__: process.env.FIREBASE_AUTH_DOMAIN,
+            __FIREBASE_PROJECT_ID__: process.env.FIREBASE_PROJECT_ID,
+            __FIREBASE_STORAGE_BUCKET__: process.env.FIREBASE_STORAGE_BUCKET,
+            __FIREBASE_MESSAGING_SENDER_ID__: process.env.FIREBASE_MESSAGING_SENDER_ID,
+            __FIREBASE_APP_ID__: process.env.FIREBASE_APP_ID,
+            __E2E_GOOGLE_EMAIL__: process.env.E2E_GOOGLE_EMAIL,
+          };
+          let content = fs.readFileSync(path, 'utf8');
+          for (const [token, value] of Object.entries(replacements)) {
+            content = content.replaceAll(token, String(value).replaceAll('\\', '\\\\').replaceAll("'", "\\'"));
+          }
+          fs.writeFileSync(path, content);
+          NODE
+
+      - name: Authenticate Firebase CLI
+        env:
+          GCP_PRIVATE_KEY_JSON: ${{ secrets.GCP_PRIVATE_KEY_JSON }}
+        run: |
+          printf '%s' "$GCP_PRIVATE_KEY_JSON" > "$RUNNER_TEMP/firebase-service-account.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/firebase-service-account.json" >> "$GITHUB_ENV"
+
+      - name: Install Firebase CLI
+        run: npm install --global firebase-tools
+
+      - name: Deploy branch preview channel
+        id: deploy
+        run: |
+          channel_id="$(printf '%s' "${GITHUB_REF_NAME}" \
+            | tr '[:upper:]' '[:lower:]' \
+            | sed -E 's/[^a-z0-9-]+/-/g; s/^-+//; s/-+$//' \
+            | cut -c1-40)"
+          if [ -z "$channel_id" ]; then
+            channel_id="ci"
+          fi
+
+          firebase hosting:channel:deploy "$channel_id" \
+            --project "$FIREBASE_PROJECT_ID" \
+            --expires 7d \
+            --json > "$RUNNER_TEMP/firebase-deploy.json"
+
+          node <<'NODE' >> "$GITHUB_OUTPUT"
+          const fs = require('node:fs');
+          const data = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/firebase-deploy.json', 'utf8'));
+          const result = data.result || {};
+          const url =
+            result.url ||
+            result.urls?.[0] ||
+            Object.values(result).find((value) => typeof value === 'string' && value.startsWith('https://'));
+          if (!url) {
+            console.error(JSON.stringify(data, null, 2));
+            throw new Error('Unable to find Firebase Hosting preview URL in deploy output');
+          }
+          console.log(`preview_url=${url}`);
+          NODE
+
+      - name: Run deployed Voice Notes real smoke test
+        env:
+          E2E_REAL: '1'
+          E2E_BASE_URL: ${{ steps.deploy.outputs.preview_url }}
+          E2E_GOOGLE_EMAIL: ${{ secrets.E2E_GOOGLE_EMAIL }}
+          E2E_GOOGLE_PASSWORD: ${{ secrets.E2E_GOOGLE_PASSWORD }}
+        run: npx playwright test tests/voice-notes.real.e2e.spec.js
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          if-no-files-found: ignore
+
+      - name: Upload Playwright test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-test-results
+          path: test-results/
+          if-no-files-found: ignore
