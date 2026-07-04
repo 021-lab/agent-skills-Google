@@ -50,6 +50,7 @@ async function completeGooglePopupLogin(popup) {
 }
 
 test('deployed Voice Notes signs in and records a real note', async ({ page }) => {
+  test.setTimeout(120000);
   requireRealEnv();
   const pageErrors = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
@@ -65,10 +66,14 @@ test('deployed Voice Notes signs in and records a real note', async ({ page }) =
   ).toBe(true);
 
   if (!(await page.evaluate(() => window.__voiceNotesApp.auth.isSignedIn()))) {
-    const popupPromise = page.waitForEvent('popup');
+    const popupPromise = page.waitForEvent('popup', { timeout: 15000 }).catch(() => null);
+    const contextPagePromise = page.context().waitForEvent('page', { timeout: 15000 }).catch(() => null);
     await page.locator('#sign-in-btn').click();
-    const popup = await popupPromise;
-    await completeGooglePopupLogin(popup);
+
+    const popup = (await popupPromise) || (await contextPagePromise);
+    const loginPage = popup || page;
+
+    await completeGooglePopupLogin(loginPage);
   }
 
   await page.waitForFunction(() => window.__voiceNotesApp.auth.isSignedIn() === true, null, { timeout: 60000 });
