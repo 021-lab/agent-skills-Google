@@ -19,6 +19,7 @@ export default defineConfig({
   use: {
     baseURL: process.env.E2E_BASE_URL || 'http://127.0.0.1:4173',
     launchOptions: useBundledChromium ? { executablePath: chromiumPath } : undefined,
+    storageState: process.env.E2E_STORAGE_STATE_PATH || undefined,
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
   },

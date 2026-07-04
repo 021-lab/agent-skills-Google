@@ -1,11 +1,12 @@
 // Real deployed smoke test for GitHub Actions. Unlike voice-notes.e2e.spec.js,
 // this does not install mocks: the deployed page loads firebase-config.js,
-// signs in with a real allowlisted Google account, then exercises Gemini +
-// Drive through the Voice Notes handler.
+// restores a real signed-in Google/Firebase session from Playwright
+// storageState, then exercises Gemini + Drive through the Voice Notes
+// handler.
 import { test, expect } from '@playwright/test';
 
 const REAL_E2E_ENABLED = process.env.E2E_REAL === '1';
-const REQUIRED_ENV = ['E2E_BASE_URL', 'E2E_GOOGLE_EMAIL', 'E2E_GOOGLE_PASSWORD'];
+const REQUIRED_ENV = ['E2E_BASE_URL', 'E2E_GOOGLE_EMAIL'];
 
 test.skip(!REAL_E2E_ENABLED, 'Set E2E_REAL=1 to run deployed real-integration tests');
 
@@ -14,39 +15,6 @@ function requireRealEnv() {
   if (missing.length > 0) {
     throw new Error(`Missing required real E2E env vars: ${missing.join(', ')}`);
   }
-}
-
-async function fillIfVisible(page, selector, value) {
-  const field = page.locator(selector).first();
-  if (await field.isVisible({ timeout: 5000 }).catch(() => false)) {
-    await field.fill(value);
-    return true;
-  }
-  return false;
-}
-
-async function clickIfVisible(page, selector) {
-  const button = page.locator(selector).first();
-  if (await button.isVisible({ timeout: 5000 }).catch(() => false)) {
-    await button.click();
-    return true;
-  }
-  return false;
-}
-
-async function completeGooglePopupLogin(popup) {
-  await popup.waitForLoadState('domcontentloaded');
-
-  const emailFilled = await fillIfVisible(popup, 'input[type="email"]', process.env.E2E_GOOGLE_EMAIL);
-  if (emailFilled) {
-    await clickIfVisible(popup, '#identifierNext button, button:has-text("Next"), button:has-text("Далее")');
-  }
-
-  await fillIfVisible(popup, 'input[type="password"]', process.env.E2E_GOOGLE_PASSWORD);
-  await clickIfVisible(popup, '#passwordNext button, button:has-text("Next"), button:has-text("Далее")');
-
-  await clickIfVisible(popup, 'button:has-text("Continue"), button:has-text("Продолжить")');
-  await clickIfVisible(popup, 'button:has-text("Allow"), button:has-text("Разрешить")');
 }
 
 test('deployed Voice Notes signs in and records a real note', async ({ page }) => {
@@ -65,18 +33,12 @@ test('deployed Voice Notes signs in and records a real note', async ({ page }) =
     `Voice Notes app initialized without auth. Bootstrap: ${JSON.stringify(bootstrapState)}. Page errors: ${pageErrors.join(' | ')}`
   ).toBe(true);
 
-  if (!(await page.evaluate(() => window.__voiceNotesApp.auth.isSignedIn()))) {
-    const popupPromise = page.waitForEvent('popup', { timeout: 15000 }).catch(() => null);
-    const contextPagePromise = page.context().waitForEvent('page', { timeout: 15000 }).catch(() => null);
-    await page.locator('#sign-in-btn').click();
-
-    const popup = (await popupPromise) || (await contextPagePromise);
-    const loginPage = popup || page;
-
-    await completeGooglePopupLogin(loginPage);
-  }
-
   await page.waitForFunction(() => window.__voiceNotesApp.auth.isSignedIn() === true, null, { timeout: 60000 });
+  const signedInEmail = await page.evaluate(() => window.__voiceNotesApp.auth.getUser()?.email?.toLowerCase() ?? null);
+  expect(
+    signedInEmail,
+    `Voice Notes restored the wrong user. Expected ${process.env.E2E_GOOGLE_EMAIL?.toLowerCase()}, got ${signedInEmail}. Page errors: ${pageErrors.join(' | ')}`
+  ).toBe(process.env.E2E_GOOGLE_EMAIL.toLowerCase());
 
   const transcript = `GitHub Actions real smoke test note ${Date.now()}`;
   await page.evaluate(async (spokenText) => {

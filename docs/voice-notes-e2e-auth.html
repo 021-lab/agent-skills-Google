@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Voice Notes E2E Auth Helper</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      margin: 32px auto;
+      max-width: 840px;
+      padding: 0 20px 48px;
+      line-height: 1.5;
+    }
+    input, code, pre {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    input {
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    pre {
+      background: #f6f8fa;
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      overflow-x: auto;
+      padding: 12px;
+    }
+    .panel {
+      border: 1px solid #d0d7de;
+      border-radius: 8px;
+      padding: 16px;
+      margin-top: 18px;
+    }
+    .muted {
+      color: #57606a;
+    }
+  </style>
+</head>
+<body>
+  <h1>Voice Notes E2E Auth Helper</h1>
+  <p class="muted">
+    This helper computes the stable Firebase Hosting URL used by the real Drive/Gemini smoke test
+    and shows the two local commands needed to save and upload the signed-in browser session.
+  </p>
+
+  <label for="project-id">Firebase project id</label>
+  <input id="project-id" name="project-id" placeholder="ai-labg" />
+
+  <div class="panel">
+    <strong>Stable sign-in URL</strong>
+    <p><a id="auth-link" href="#" target="_blank" rel="noreferrer">Fill in a Firebase project id</a></p>
+    <p class="muted">Use the allowlisted Google account on this exact URL.</p>
+  </div>
+
+  <div class="panel">
+    <strong>1. Save the browser session locally</strong>
+    <pre id="save-command">FIREBASE_PROJECT_ID=&lt;project-id&gt; npm run e2e:auth:save</pre>
+    <p class="muted">This opens Chromium, waits for a real sign-in, then writes <code>playwright/.auth/voice-notes-google.json</code>.</p>
+  </div>
+
+  <div class="panel">
+    <strong>2. Upload the saved session into GitHub Actions</strong>
+    <pre id="upload-command">npm run e2e:auth:upload-secret</pre>
+    <p class="muted">This updates the GitHub secret <code>E2E_PLAYWRIGHT_STORAGE_STATE_B64</code>.</p>
+  </div>
+
+  <div class="panel">
+    <strong>Where things go</strong>
+    <ul>
+      <li>Local session file: <code>playwright/.auth/voice-notes-google.json</code></li>
+      <li>GitHub Actions secret: <code>E2E_PLAYWRIGHT_STORAGE_STATE_B64</code></li>
+      <li>Allowlisted email secret already used by CI: <code>E2E_GOOGLE_EMAIL</code></li>
+    </ul>
+  </div>
+
+  <script>
+    const projectIdInput = document.getElementById('project-id');
+    const authLink = document.getElementById('auth-link');
+    const saveCommand = document.getElementById('save-command');
+
+    function resolveSiteId(projectId) {
+      const cleaned = (projectId || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9-]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 26)
+        .replace(/-+$/g, '');
+      return cleaned ? `${cleaned}-e2e` : '';
+    }
+
+    function render() {
+      const projectId = projectIdInput.value.trim();
+      const siteId = resolveSiteId(projectId);
+      const url = siteId ? `https://${siteId}.web.app/examples/voice-notes/index.html` : '#';
+
+      authLink.href = url;
+      authLink.textContent = siteId ? url : 'Fill in a Firebase project id';
+      saveCommand.textContent = projectId
+        ? `FIREBASE_PROJECT_ID=${projectId} npm run e2e:auth:save`
+        : 'FIREBASE_PROJECT_ID=<project-id> npm run e2e:auth:save';
+    }
+
+    projectIdInput.addEventListener('input', render);
+    render();
+  </script>
+</body>
+</html>

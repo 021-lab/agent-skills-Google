@@ -9,6 +9,10 @@ This app is normally driven by mocked Firebase/Gemini/Drive clients (see
 `tests/voice-notes.e2e.spec.js`). This doc is for running it against real
 credentials instead.
 
+For the stable GitHub Actions flow that reuses a saved signed-in browser
+session instead of walking the Google popup on every push, see
+[`docs/voice-notes-e2e.md`](/Users/AIDev/Codex/firebase-voice-framework%20/docs/voice-notes-e2e.md).
+
 ## The security model, up front
 
 Two allowlists exist in this setup, and they are **not equally strong**:

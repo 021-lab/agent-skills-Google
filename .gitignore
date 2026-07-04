@@ -7,6 +7,7 @@ node_modules/
 .claude/sdd-cache/
 test-results/
 playwright-report/
+playwright/.auth/
 
 # Real Firebase config for local/manual testing. Excluded by default, but
 # committing it is a reasonable choice once the Google OAuth consent

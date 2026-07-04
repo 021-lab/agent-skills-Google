@@ -1,4 +1,4 @@
-name: Voice Notes Preview Smoke Test
+name: Voice Notes Stable E2E Smoke Test
 
 on:
   push:
@@ -6,10 +6,11 @@ on:
 
 jobs:
   voice-notes-real-smoke:
-    name: Deploy preview and run real Voice Notes smoke test
+    name: Deploy stable Voice Notes E2E site and run real smoke test
     runs-on: ubuntu-latest
     env:
       FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+      VOICE_NOTES_E2E_TARGET: voice-notes-e2e
     steps:
       - uses: actions/checkout@v4
 
@@ -32,7 +33,6 @@ jobs:
         env:
           GCP_PRIVATE_KEY_JSON: ${{ secrets.GCP_PRIVATE_KEY_JSON }}
           E2E_GOOGLE_EMAIL: ${{ secrets.E2E_GOOGLE_EMAIL }}
-          E2E_GOOGLE_PASSWORD: ${{ secrets.E2E_GOOGLE_PASSWORD }}
           FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
           FIREBASE_AUTH_DOMAIN: ${{ secrets.FIREBASE_AUTH_DOMAIN }}
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
@@ -44,7 +44,6 @@ jobs:
           for name in \
             GCP_PRIVATE_KEY_JSON \
             E2E_GOOGLE_EMAIL \
-            E2E_GOOGLE_PASSWORD \
             FIREBASE_WEB_API_KEY \
             FIREBASE_AUTH_DOMAIN \
             FIREBASE_PROJECT_ID \
@@ -81,7 +80,7 @@ jobs:
           try {
             const firebaseConfig = {
               apiKey: '__FIREBASE_WEB_API_KEY__',
-              authDomain: window.location.host,
+              authDomain: '__FIREBASE_AUTH_DOMAIN__',
               projectId: '__FIREBASE_PROJECT_ID__',
               storageBucket: '__FIREBASE_STORAGE_BUCKET__',
               messagingSenderId: '__FIREBASE_MESSAGING_SENDER_ID__',
@@ -163,46 +162,109 @@ jobs:
       - name: Verify Firebase CLI access
         run: firebase projects:list --json
 
-      - name: Deploy branch preview channel
-        id: deploy
+      - name: Derive stable Voice Notes E2E site id
+        id: site
         run: |
-          channel_id="$(printf '%s' "${GITHUB_REF_NAME}" \
-            | tr '[:upper:]' '[:lower:]' \
-            | sed -E 's/[^a-z0-9-]+/-/g; s/^-+//; s/-+$//' \
-            | cut -c1-40)"
-          if [ -z "$channel_id" ]; then
-            channel_id="ci"
+          site_id="$(node --input-type=module -e "import { resolveVoiceNotesE2ESiteId } from './scripts/voice-notes-e2e-config.mjs'; console.log(resolveVoiceNotesE2ESiteId(process.env.FIREBASE_PROJECT_ID));")"
+          echo "site_id=$site_id" >> "$GITHUB_OUTPUT"
+          echo "stable_url=https://$site_id.web.app/examples/voice-notes/index.html" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure stable Hosting site exists
+        run: |
+          set +e
+          firebase hosting:sites:create "${{ steps.site.outputs.site_id }}" \
+            --project "$FIREBASE_PROJECT_ID" \
+            --debug
+          create_status=$?
+          set -e
+
+          if [ "$create_status" -ne 0 ]; then
+            echo "Hosting site create returned $create_status; continuing after listing existing sites."
           fi
 
-          firebase hosting:channel:deploy "$channel_id" \
+          firebase hosting:sites:list --project "$FIREBASE_PROJECT_ID"
+
+      - name: Bind stable Hosting target
+        run: firebase target:apply hosting "$VOICE_NOTES_E2E_TARGET" "${{ steps.site.outputs.site_id }}" --project "$FIREBASE_PROJECT_ID"
+
+      - name: Generate stable Hosting deploy config
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const source = JSON.parse(fs.readFileSync('firebase.json', 'utf8'));
+          const hostingConfig = Array.isArray(source.hosting) ? source.hosting[0] : source.hosting;
+          const e2eConfig = {
+            ...source,
+            hosting: [{
+              ...hostingConfig,
+              target: process.env.VOICE_NOTES_E2E_TARGET,
+            }],
+          };
+          fs.writeFileSync('firebase.e2e.json', JSON.stringify(e2eConfig, null, 2));
+          NODE
+
+      - name: Deploy stable Voice Notes E2E site
+        id: deploy
+        run: |
+          firebase deploy \
+            --only "hosting:$VOICE_NOTES_E2E_TARGET" \
             --project "$FIREBASE_PROJECT_ID" \
-            --expires 7d \
+            --config firebase.e2e.json \
             --debug \
             --json > "$RUNNER_TEMP/firebase-deploy.json"
 
           node <<'NODE' >> "$GITHUB_OUTPUT"
           const fs = require('node:fs');
           const data = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/firebase-deploy.json', 'utf8'));
-          const result = data.result || {};
-          const nestedResult = Object.values(result).find((value) => value && typeof value === 'object');
-          const url =
-            result.url ||
-            result.urls?.[0] ||
-            nestedResult?.url ||
-            Object.values(result).find((value) => typeof value === 'string' && value.startsWith('https://'));
-          if (!url) {
-            console.error(JSON.stringify(data, null, 2));
-            throw new Error('Unable to find Firebase Hosting preview URL in deploy output');
-          }
-          console.log(`preview_url=${url}`);
+          console.log(`stable_url=https://${process.env.SITE_ID}.web.app/examples/voice-notes/index.html`);
+          console.log(`site_id=${process.env.SITE_ID}`);
           NODE
+        env:
+          SITE_ID: ${{ steps.site.outputs.site_id }}
+
+      - name: Authorize stable Hosting domains for Firebase Auth
+        run: |
+          node scripts/update-firebase-auth-config.mjs \
+            "$FIREBASE_PROJECT_ID" \
+            "${{ steps.site.outputs.site_id }}.web.app" \
+            "${{ steps.site.outputs.site_id }}.firebaseapp.com"
+
+      - name: Publish stable E2E URL summary
+        run: |
+          {
+            echo "### Voice Notes stable E2E site"
+            echo
+            echo "- Stable URL: ${{ steps.deploy.outputs.stable_url }}"
+            echo "- Firebase Hosting site id: ${{ steps.site.outputs.site_id }}"
+            echo "- Helper page in repo: \`docs/voice-notes-e2e-auth.html\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Restore Playwright storage state
+        env:
+          E2E_PLAYWRIGHT_STORAGE_STATE_B64: ${{ secrets.E2E_PLAYWRIGHT_STORAGE_STATE_B64 }}
+        run: |
+          if [ -z "$E2E_PLAYWRIGHT_STORAGE_STATE_B64" ]; then
+            {
+              echo "### Voice Notes E2E browser session is not configured"
+              echo
+              echo "- Stable auth URL: ${{ steps.deploy.outputs.stable_url }}"
+              echo "- Save a session locally with \`FIREBASE_PROJECT_ID=$FIREBASE_PROJECT_ID npm run e2e:auth:save\`"
+              echo "- Upload it with \`npm run e2e:auth:upload-secret\`"
+              echo "- Helper page in repo: \`docs/voice-notes-e2e-auth.html\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "Missing GitHub secret E2E_PLAYWRIGHT_STORAGE_STATE_B64"
+            exit 1
+          fi
+
+          mkdir -p playwright/.auth
+          printf '%s' "$E2E_PLAYWRIGHT_STORAGE_STATE_B64" | base64 --decode > playwright/.auth/voice-notes-google.json
 
       - name: Run deployed Voice Notes real smoke test
         env:
           E2E_REAL: '1'
-          E2E_BASE_URL: ${{ steps.deploy.outputs.preview_url }}
+          E2E_BASE_URL: ${{ steps.deploy.outputs.stable_url }}
           E2E_GOOGLE_EMAIL: ${{ secrets.E2E_GOOGLE_EMAIL }}
-          E2E_GOOGLE_PASSWORD: ${{ secrets.E2E_GOOGLE_PASSWORD }}
+          E2E_STORAGE_STATE_PATH: playwright/.auth/voice-notes-google.json
         run: npx playwright test tests/voice-notes.real.e2e.spec.js
 
       - name: Upload Playwright report
